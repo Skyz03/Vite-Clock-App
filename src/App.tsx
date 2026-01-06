@@ -194,7 +194,7 @@ export default function App() {
 
   if (!hasInitialized) {
     return (
-      <main className="h-screen w-full bg-black flex items-center justify-center">
+      <main className={`relative h-screen w-full bg-cover bg-center transition-all duration-[2000ms] ${hasInitialized ? 'scale-100' : 'scale-110'} ${bgImage}`}>
         <div className="text-center space-y-10">
           <h1 className="text-6xl md:text-8xl font-black tracking-tight text-white">
             CLOCK OS
@@ -333,10 +333,10 @@ export default function App() {
       >
         <Container>
           <div className="h-full py-12 md:py-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-y-10 gap-x-12 lg:gap-x-20 items-center">
-            <StatBox label="Timezone" value={data.timezone} />
-            <StatBox label="Day of Year" value={data.dayOfYear} />
-            <StatBox label="Day of Week" value={DAY_NAMES[data.dayOfWeek]} />
-            <StatBox label="Current Week" value={data.weekNumber} />
+            <StatBox label="Timezone" value={data.timezone} isExpanded={isExpanded} />
+            <StatBox label="Day of Year" value={data.dayOfYear} isExpanded={isExpanded} />
+            <StatBox label="Day of Week" value={DAY_NAMES[data.dayOfWeek]} isExpanded={isExpanded} />
+            <StatBox label="Current Week" value={data.weekNumber} isExpanded={isExpanded} />
           </div>
         </Container>
       </div>
@@ -346,10 +346,30 @@ export default function App() {
 
 /* ================= STAT ================= */
 
-const StatBox = ({ label, value }: { label: string; value: string | number }) => (
-  <div className="space-y-4">
-    <span className="uppercase tracking-[0.3em] text-xs opacity-50">{label}</span>
-    <div className="text-5xl font-black tracking-tight truncate">{value}</div>
-    <div className="h-px w-12 bg-current opacity-30" />
+/* ================= STAT ================= */
+
+const StatBox = ({
+  label,
+  value,
+  isExpanded
+}: {
+  label: string;
+  value: string | number;
+  isExpanded: boolean
+}) => (
+  <div className="relative space-y-2 group overflow-hidden">
+    {/* Subtle scanning bar that only appears on expand */}
+    <div className={`absolute inset-0 bg-gradient-to-b from-blue-500/10 to-transparent h-1/2 w-full -translate-y-full ${isExpanded ? 'animate-[scanline_2s_ease-in-out_infinite]' : ''}`} />
+
+    <span className="uppercase tracking-[0.4em] text-[10px] md:text-xs font-black opacity-40 group-hover:opacity-100 transition-opacity">
+      {label}
+    </span>
+
+    <div className={`text-4xl md:text-6xl font-black tracking-tighter truncate leading-none transition-all duration-700 ${isExpanded ? 'animate-glitch opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+      {value}
+    </div>
+
+    {/* Animated underline */}
+    <div className={`h-[2px] bg-current transition-all duration-1000 delay-300 ${isExpanded ? 'w-12 opacity-30' : 'w-0 opacity-0'}`} />
   </div>
 );
