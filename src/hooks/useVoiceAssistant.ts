@@ -54,8 +54,8 @@ export function useVoiceAssistant() {
       }
 
       // Adjust rate/pitch for a "Chief" persona
-      utterance.pitch = 0.9; // Slightly deeper
-      utterance.rate = 0.95;
+      utterance.pitch = 1; // Slightly deeper
+      utterance.rate = 1.5;
 
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => {

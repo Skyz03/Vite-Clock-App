@@ -98,8 +98,8 @@ export default function App() {
       try {
         await refreshQuote();
         const [geo, time] = await Promise.all([
-          axios.get('https://ipapi.co/json/', { timeout: 3000 }),
-          axios.get('https://worldtimeapi.org/api/ip', { timeout: 3000 })
+          axios.get('https://free.freeipapi.com/api/json/', { timeout: 3000 }),
+          axios.get('https://worldtimeapi.org/api/timezone/Asia/Kathmandu', { timeout: 3000 })
         ]);
 
         newData = {
@@ -195,7 +195,7 @@ export default function App() {
   if (!hasInitialized) {
     return (
       <main className={`relative h-screen w-full bg-cover bg-center transition-all duration-[2000ms] ${hasInitialized ? 'scale-100' : 'scale-110'} ${bgImage}`}>
-        <div className="text-center space-y-10">
+        <div className="text-center space-y-10 h-full flex flex-col items-center justify-center px-6">
           <h1 className="text-6xl md:text-8xl font-black tracking-tight text-white">
             CLOCK OS
           </h1>
@@ -343,8 +343,6 @@ export default function App() {
     </main>
   );
 }
-
-/* ================= STAT ================= */
 
 /* ================= STAT ================= */
 
