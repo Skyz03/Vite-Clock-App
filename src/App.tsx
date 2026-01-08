@@ -97,22 +97,31 @@ export default function App() {
 
       try {
         await refreshQuote();
+
         const [geo, time] = await Promise.all([
           axios.get('https://free.freeipapi.com/api/json/', { timeout: 3000 }),
-          axios.get('https://worldtimeapi.org/api/timezone/Asia/Kathmandu', { timeout: 3000 })
+          axios.get('https://worldtimeapi.org/api/ip', { timeout: 3000 })
         ]);
+
+        // --- LOGGING START ---
+        console.group("📡 UPLINK DATA RECEIVED");
+        console.log("FREE-IP-API Response:", geo.data);
+        console.log("WORLD-TIME-API Response:", time.data);
+        console.groupEnd();
+        // --- LOGGING END ---
 
         newData = {
           ...newData,
-          location: `${geo.data.city}, ${geo.data.country_name}`,
+          // Fixed: Mapping based on your provided JSON schema
+          location: `${geo.data.cityName}, ${geo.data.countryName}, ${geo.data.zipCode}`,
           timezone: time.data.timezone,
           timezoneAbbr: time.data.abbreviation,
           dayOfYear: time.data.day_of_year,
           dayOfWeek: time.data.day_of_week,
           weekNumber: time.data.week_number
         };
-      } catch {
-        console.log('Offline mode');
+      } catch (error) {
+        console.error('⚠️ Uplink Offline:', error);
       } finally {
         setData(newData);
         setIsLoading(false);
@@ -209,8 +218,6 @@ export default function App() {
       </main>
     );
   }
-
-  /* ================= MAIN UI ================= */
 
   /* ================= MAIN UI ================= */
 
