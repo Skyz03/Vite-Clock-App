@@ -9,8 +9,12 @@ import {
   Moon,
   MapPin
 } from 'lucide-react';
+
+// Import your assets
 import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
 import bgImageNighttime from './assets/desktop/bg-image-nighttime.jpg';
+// @ts-ignore
+import localQuotes from './data/quote.js';
 
 /* ================= TYPES ================= */
 
@@ -32,13 +36,7 @@ interface Quote {
 }
 
 const DAY_NAMES = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday'
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 ];
 
 /* ================= LAYOUT ================= */
@@ -71,11 +69,15 @@ export default function App() {
     });
   };
 
-  const refreshQuote = async () => {
-    try {
-      const res = await axios.get('https://api.quotable.io/random');
-      setQuote({ content: res.data.content, author: res.data.author });
-    } catch { }
+  const refreshQuote = () => {
+    // Generate a random index based on the length of our JSON array
+    const randomIndex = Math.floor(Math.random() * localQuotes.length);
+    const selectedQuote = localQuotes[randomIndex];
+
+    setQuote({
+      content: selectedQuote.content,
+      author: selectedQuote.author
+    });
   };
 
   /* ================= INIT ================= */
@@ -84,7 +86,8 @@ export default function App() {
     const init = async () => {
       setIsLoading(true);
       const now = new Date();
-
+      refreshQuote();
+      // Initial Local State
       let newData: ClockData = {
         time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
         location: 'Local System',
@@ -98,24 +101,21 @@ export default function App() {
       };
 
       try {
-        await refreshQuote();
+
 
         const [geo, time] = await Promise.all([
           axios.get('https://free.freeipapi.com/api/json/', { timeout: 3000 }),
           axios.get('https://worldtimeapi.org/api/ip', { timeout: 3000 })
         ]);
 
-        // --- LOGGING START ---
         console.group("📡 UPLINK DATA RECEIVED");
-        console.log("FREE-IP-API Response:", geo.data);
-        console.log("WORLD-TIME-API Response:", time.data);
+        console.log("Geo:", geo.data);
+        console.log("Time:", time.data);
         console.groupEnd();
-        // --- LOGGING END ---
 
         newData = {
           ...newData,
-          // Fixed: Mapping based on your provided JSON schema
-          location: `${geo.data.cityName}, ${geo.data.countryName}, ${geo.data.zipCode}`,
+          location: `${geo.data.cityName}, ${geo.data.countryName} ${geo.data.zipCode || ''}`,
           timezone: time.data.timezone,
           timezoneAbbr: time.data.abbreviation,
           dayOfYear: time.data.day_of_year,
@@ -133,23 +133,17 @@ export default function App() {
     init();
   }, []);
 
+  // Tick Timer
   useEffect(() => {
     if (!hasInitialized) return;
     const timer = setInterval(() => {
       const now = new Date();
-      setData(prev =>
-        prev
-          ? {
-            ...prev,
-            time: now.toLocaleTimeString('en-GB', {
-              hour: '2-digit',
-              minute: '2-digit'
-            }),
-            currentHour: now.getHours(),
-            rawTime: now
-          }
-          : null
-      );
+      setData(prev => prev ? {
+        ...prev,
+        time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        currentHour: now.getHours(),
+        rawTime: now
+      } : null);
     }, 1000);
     return () => clearInterval(timer);
   }, [hasInitialized]);
@@ -159,16 +153,17 @@ export default function App() {
     return data.currentHour >= 18 || data.currentHour < 6;
   }, [data]);
 
+  const currentBg = isNightMode ? bgImageNighttime : bgImageDaytime;
+
   /* ================= VOICE FLOW ================= */
 
   const handleStart = () => {
     setHasInitialized(true);
     if (!data) return;
 
-    const greeting =
-      data.location === 'Local System'
-        ? 'Hello Chief. External services unavailable. Initializing local time.'
-        : `Hello Chief. You are in ${data.location}. Is this correct?`;
+    const greeting = data.location === 'Local System'
+      ? 'Hello Chief. External services unavailable. Initializing local time.'
+      : `Hello Chief. You are in ${data.location}. Is this correct?`;
 
     safeSpeak(greeting, () => {
       if (data.location !== 'Local System') setShowLocationConfirm(true);
@@ -187,12 +182,6 @@ export default function App() {
     }
   };
 
-  /* ================= BACKGROUND ================= */
-
-  const bgImage = isNightMode
-    ? `bg-[url(${bgImageNighttime})]`
-    : `bg-[url(${bgImageDaytime})]`;
-
   if (isLoading || !data) {
     return (
       <div className="h-screen w-full bg-black text-white flex items-center justify-center font-mono animate-pulse">
@@ -205,14 +194,18 @@ export default function App() {
 
   if (!hasInitialized) {
     return (
-      <main className={`relative h-screen w-full bg-cover bg-center transition-all duration-[2000ms] ${hasInitialized ? 'scale-100' : 'scale-110'} ${bgImage}`}>
-        <div className="text-center space-y-10 h-full flex flex-col items-center justify-center px-6">
-          <h1 className="text-6xl md:text-8xl font-black tracking-tight text-white">
+      <main
+        className="relative h-screen w-full bg-cover bg-center transition-all duration-[2000ms] scale-110 flex flex-col items-center justify-center px-6"
+        style={{ backgroundImage: `url(${currentBg})` }}
+      >
+        <div className="absolute inset-0 bg-black/40" />
+        <div className="relative z-10 text-center space-y-10">
+          <h1 className="text-6xl md:text-8xl font-black tracking-tight text-white drop-shadow-lg">
             CLOCK OS
           </h1>
           <button
             onClick={handleStart}
-            className="px-10 py-4 bg-white text-black font-bold tracking-widest rounded-full hover:scale-105 active:scale-95 transition"
+            className="px-10 py-4 bg-white text-black font-bold tracking-widest rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl"
           >
             INITIALIZE
           </button>
@@ -224,12 +217,14 @@ export default function App() {
   /* ================= MAIN UI ================= */
 
   return (
-    <main className="relative h-screen w-full bg-cover bg-center overflow-hidden"
-      style={{ backgroundImage: `url(${bgImage})` }}
+    <main
+      className="relative h-screen w-full bg-cover bg-center overflow-hidden transition-all duration-1000"
+      style={{ backgroundImage: `url(${currentBg})` }}
     >
+      {/* Background Overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/40 to-black/70" />
 
-      {/* LOCATION CONFIRM MODAL (Remains the same) */}
+      {/* LOCATION CONFIRM MODAL */}
       {showLocationConfirm && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl p-6">
           <div className="bg-black/80 border border-white/10 rounded-3xl p-8 md:p-12 text-center space-y-8 max-w-md w-full animate-in fade-in zoom-in-95 duration-300">
@@ -257,33 +252,23 @@ export default function App() {
       )}
 
       {/* MAIN CONTENT WRAPPER */}
-      <div
-        className={`relative z-10 h-full transition-all duration-1000 ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? '-translate-y-[45vh]' : 'translate-y-0'
-          }`}
-      >
+      <div className={`relative z-10 h-full transition-all duration-1000 ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? '-translate-y-[45vh]' : 'translate-y-0'}`}>
         <Container>
-          {/* We use a flex container that spans the full height of the viewport */}
           <div className="flex flex-col justify-between h-screen py-12 md:py-20 lg:py-24">
 
-            {/* HEADER (Top Spaced) */}
-            <header
-              className={`transition-all duration-700 ${isExpanded ? 'opacity-0 -translate-y-10 pointer-events-none' : 'opacity-100 translate-y-0'
-                }`}
-            >
+            {/* HEADER (Quote) */}
+            <header className={`transition-all duration-700 ${isExpanded ? 'opacity-0 -translate-y-10 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
               <div className="flex flex-wrap items-center gap-6 group max-w-4xl">
                 <p className="border-l-2 border-white/20 pl-6 italic text-lg md:text-xl text-white/90 leading-relaxed">
-                  {quote.content ? `“${quote.content}”` : "Time flies like an arrow; fruit flies like a banana."}
+                  {quote.content ? `“${quote.content}”` : "Connecting to neural network..."}
                 </p>
-
                 <div className="flex items-center gap-4 shrink-0 pl-6 md:pl-0">
                   <span className="uppercase tracking-[0.3em] text-[10px] font-black text-white/40">
-                  // {quote.author || "Skyz"}
+                    // {quote.author || "System"}
                   </span>
-
                   <button
                     onClick={refreshQuote}
                     className="p-2 rounded-full hover:bg-white/10 text-white/20 hover:text-white transition-all active:rotate-180 duration-500"
-                    title="Refresh Neural Uplink"
                   >
                     <RefreshCw size={14} />
                   </button>
@@ -291,10 +276,9 @@ export default function App() {
               </div>
             </header>
 
-            {/* FOOTER (Bottom Spaced) */}
+            {/* FOOTER (Clock & Toggle) */}
             <footer className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
               <div className="space-y-8 md:space-y-12">
-                {/* Greeting */}
                 <div className="flex items-center gap-4 uppercase tracking-[0.4em] text-[10px] md:text-xs font-bold text-white/70">
                   <span className="p-2 bg-white/10 rounded-md">
                     {isNightMode ? <Moon size={16} /> : <Sun size={16} />}
@@ -302,7 +286,6 @@ export default function App() {
                   Good {data.currentHour < 12 ? 'Morning' : data.currentHour < 18 ? 'Afternoon' : 'Evening'}, Chief
                 </div>
 
-                {/* Massive Time Display */}
                 <div className="flex items-baseline gap-4 md:gap-6">
                   <h1 className="font-black text-white leading-[0.8] tracking-tighter text-[clamp(5rem,20vw,16rem)] drop-shadow-2xl">
                     {data.time.slice(0, 2)}
@@ -313,14 +296,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Location */}
                 <div className="flex items-center gap-3 uppercase tracking-[0.5em] text-[10px] md:text-xs font-black text-white/60 pl-1">
                   <MapPin size={12} className="text-blue-400" />
                   {data.location}
                 </div>
               </div>
 
-              {/* Toggle Button */}
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="group self-start lg:self-end flex items-center gap-6 bg-white py-2 pl-8 pr-2 rounded-full transition-all duration-300 hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] active:scale-95"
@@ -337,7 +318,7 @@ export default function App() {
         </Container>
       </div>
 
-      {/* STATS PANEL (Slide Up) */}
+      {/* STATS PANEL */}
       <div
         className={`absolute bottom-0 left-0 w-full h-[50vh] transition-transform duration-1000 ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? 'translate-y-0' : 'translate-y-full'
           } ${isNightMode ? 'bg-black/80 text-white' : 'bg-white/95 text-black'} backdrop-blur-3xl border-t border-white/10 z-20`}
@@ -355,30 +336,17 @@ export default function App() {
   );
 }
 
-/* ================= STAT ================= */
+/* ================= STAT BOX COMPONENT ================= */
 
-const StatBox = ({
-  label,
-  value,
-  isExpanded
-}: {
-  label: string;
-  value: string | number;
-  isExpanded: boolean
-}) => (
+const StatBox = ({ label, value, isExpanded }: { label: string; value: string | number; isExpanded: boolean }) => (
   <div className="relative space-y-2 group overflow-hidden">
-    {/* Subtle scanning bar that only appears on expand */}
     <div className={`absolute inset-0 bg-gradient-to-b from-blue-500/10 to-transparent h-1/2 w-full -translate-y-full ${isExpanded ? 'animate-[scanline_2s_ease-in-out_infinite]' : ''}`} />
-
     <span className="uppercase tracking-[0.4em] text-[10px] md:text-xs font-black opacity-40 group-hover:opacity-100 transition-opacity">
       {label}
     </span>
-
-    <div className={`text-4xl md:text-6xl font-black tracking-tighter truncate leading-none transition-all duration-700 ${isExpanded ? 'animate-glitch opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className={`text-4xl md:text-6xl font-black tracking-tighter truncate leading-none transition-all duration-700 ${isExpanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
       {value}
     </div>
-
-    {/* Animated underline */}
     <div className={`h-[2px] bg-current transition-all duration-1000 delay-300 ${isExpanded ? 'w-12 opacity-30' : 'w-0 opacity-0'}`} />
   </div>
 );
