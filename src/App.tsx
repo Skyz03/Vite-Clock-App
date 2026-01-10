@@ -9,6 +9,8 @@ import {
   Moon,
   MapPin
 } from 'lucide-react';
+import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
+import bgImageNighttime from './assets/desktop/bg-image-nighttime.jpg';
 
 /* ================= TYPES ================= */
 
@@ -188,8 +190,8 @@ export default function App() {
   /* ================= BACKGROUND ================= */
 
   const bgImage = isNightMode
-    ? 'bg-[url("https://images.unsplash.com/photo-1472552947727-3393002e0b39?q=80&w=2070&auto=format&fit=crop")]'
-    : 'bg-[url("https://images.unsplash.com/photo-1477346611705-65d1883cee1e?q=80&w=2070&auto=format&fit=crop")]';
+    ? `bg-[url(${bgImageNighttime})]`
+    : `bg-[url(${bgImageDaytime})]`;
 
   if (isLoading || !data) {
     return (
@@ -222,7 +224,9 @@ export default function App() {
   /* ================= MAIN UI ================= */
 
   return (
-    <main className={`relative h-screen w-full bg-cover bg-center overflow-hidden ${bgImage}`}>
+    <main className="relative h-screen w-full bg-cover bg-center overflow-hidden"
+      style={{ backgroundImage: `url(${bgImage})` }}
+    >
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/40 to-black/70" />
 
       {/* LOCATION CONFIRM MODAL (Remains the same) */}
