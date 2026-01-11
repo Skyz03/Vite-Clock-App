@@ -211,6 +211,7 @@ export default function App() {
 
       {/* 1. BACKGROUND LAYER - Fixed with Parallax Scale & Blur */}
       <div
+        data-testid="bg-container"
         className={`absolute inset-0 bg-cover bg-center transition-all duration-[1500ms] ease-out ${isExpanded ? 'scale-110 blur-sm' : 'scale-100 blur-0'
           }`}
         style={{ backgroundImage: `url(${currentBg})` }}
