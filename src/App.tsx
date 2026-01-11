@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useVoiceAssistant } from './hooks/useVoiceAssistant';
 import {
@@ -7,10 +7,11 @@ import {
   ArrowUp,
   Sun,
   Moon,
-  MapPin
+  MapPin,
+  Cpu
 } from 'lucide-react';
 
-// Import your assets
+// Assets
 import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
 import bgImageNighttime from './assets/desktop/bg-image-nighttime.jpg';
 // @ts-ignore
@@ -35,7 +36,7 @@ interface Quote {
   author: string;
 }
 
-/* ================= LAYOUT ================= */
+/* ================= COMPONENTS ================= */
 
 const Container = ({ children }: { children: React.ReactNode }) => (
   <div className="mx-auto w-full max-w-[1400px] px-6 md:px-10 lg:px-16">
@@ -43,41 +44,77 @@ const Container = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-/* ================= APP ================= */
+const StatBox = ({ label, value, isNight }: { label: string; value: string | number; isNight: boolean }) => (
+  <div className="flex md:flex-col justify-between items-center md:items-start gap-1">
+    <span className={`uppercase tracking-[0.2em] text-[10px] md:text-xs font-bold ${isNight ? 'text-white/60' : 'text-black/60'}`}>
+      {label}
+    </span>
+    <div className={`text-2xl md:text-4xl lg:text-6xl font-bold tracking-tight ${isNight ? 'text-white' : 'text-black'}`}>
+      {value}
+    </div>
+  </div>
+);
+
+/* ================= MAIN APP ================= */
 
 export default function App() {
   const [data, setData] = useState<ClockData | null>(null);
   const [quote, setQuote] = useState<Quote>({ content: '', author: '' });
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  const { speak } = useVoiceAssistant();
   const [hasInitialized, setHasInitialized] = useState(false);
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const [parallax, setParallax] = useState({ x: 0, y: 0 });
+  // Engagement States
+  const [parallax, setParallax] = useState({ x: 0, y: 0, rotX: 0, rotY: 0 });
+  const { speak } = useVoiceAssistant();
 
-  useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      // Gamma is left-to-right tilt (-90 to 90)
-      // Beta is front-to-back tilt (-180 to 180)
-      const x = e.gamma ? (e.gamma / 15) : 0;
-      const y = e.beta ? (e.beta - 45) / 15 : 0; // Subtracting 45 assumes the user holds the phone at an angle
-
-      setParallax({ x, y });
+  /* 1. HAPTIC FEEDBACK ENGINE */
+  const triggerHaptic = useCallback((intensity: 'light' | 'medium' | 'heavy') => {
+    if (!('vibrate' in navigator)) return;
+    const patterns = {
+      light: 10,
+      medium: [20, 30, 20],
+      heavy: [50, 100, 50]
     };
+    navigator.vibrate(patterns[intensity]);
+  }, []);
 
-    // Check if the browser requires permission (iOS requirement)
+  /* 2. DEVICE ORIENTATION LOGIC */
+  const handleOrientation = (e: DeviceOrientationEvent) => {
+    const x = e.gamma ? (e.gamma / 12) : 0; // Left/Right tilt
+    const y = e.beta ? (e.beta - 45) / 12 : 0; // Front/Back tilt (offset for natural holding angle)
+
+    setParallax({
+      x: x * -1.5,
+      y: y * -1.5,
+      rotX: y * 0.8,
+      rotY: x * -0.8
+    });
+  };
+
+  const requestSensors = async () => {
+    triggerHaptic('medium');
+
+    // iOS 13+ Permission Request
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
-      // We will trigger this on the "INITIALIZE" button click later
+      try {
+        const response = await (DeviceOrientationEvent as any).requestPermission();
+        if (response === 'granted') {
+          window.addEventListener('deviceorientation', handleOrientation);
+        }
+      } catch (e) {
+        console.error("Sensor access denied");
+      }
     } else {
       window.addEventListener('deviceorientation', handleOrientation);
     }
 
-    return () => window.removeEventListener('deviceorientation', handleOrientation);
-  }, []);
+    handleStart();
+  };
 
+  /* 3. VOICE & DATA LOGIC */
   const safeSpeak = (text: string, onEnd?: () => void) => {
     if (isSpeaking) return;
     setIsSpeaking(true);
@@ -88,6 +125,7 @@ export default function App() {
   };
 
   const refreshQuote = () => {
+    triggerHaptic('light');
     const randomIndex = Math.floor(Math.random() * localQuotes.length);
     const selectedQuote = localQuotes[randomIndex];
     setQuote({
@@ -95,8 +133,6 @@ export default function App() {
       author: selectedQuote.author
     });
   };
-
-  /* ================= INIT ================= */
 
   useEffect(() => {
     const init = async () => {
@@ -138,7 +174,6 @@ export default function App() {
         setIsLoading(false);
       }
     };
-
     init();
   }, []);
 
@@ -156,16 +191,12 @@ export default function App() {
     return () => clearInterval(timer);
   }, [hasInitialized]);
 
-
-
   const isNightMode = useMemo(() => {
     if (!data) return false;
     return data.currentHour >= 18 || data.currentHour < 6;
   }, [data]);
 
   const currentBg = isNightMode ? bgImageNighttime : bgImageDaytime;
-
-  /* ================= VOICE FLOW ================= */
 
   const handleStart = () => {
     setHasInitialized(true);
@@ -181,6 +212,7 @@ export default function App() {
   };
 
   const handleLocationConfirm = (ok: boolean) => {
+    triggerHaptic(ok ? 'medium' : 'light');
     setShowLocationConfirm(false);
     if (ok && data) {
       safeSpeak(`System synchronized. The time is ${data.rawTime.toLocaleTimeString('en-US', {
@@ -194,8 +226,9 @@ export default function App() {
 
   if (isLoading || !data) {
     return (
-      <div className="h-screen w-full bg-black text-white flex items-center justify-center font-mono animate-pulse">
-        Initializing Systems…
+      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono animate-pulse gap-4">
+        <Cpu className="animate-spin text-blue-500" size={32} />
+        <span className="tracking-[0.5em] text-xs">BOOTING OS...</span>
       </div>
     );
   }
@@ -205,19 +238,23 @@ export default function App() {
   if (!hasInitialized) {
     return (
       <main
-        className="relative h-screen w-full bg-cover bg-center transition-all duration-[2000ms] scale-110 flex flex-col items-center justify-center px-6"
+        className="relative h-screen w-full bg-cover bg-center flex flex-col items-center justify-center px-6 overflow-hidden"
         style={{ backgroundImage: `url(${currentBg})` }}
       >
-        <div className="absolute inset-0 bg-black/50" />
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
         <div className="relative z-10 text-center space-y-10">
-          <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-white drop-shadow-2xl">
-            CLOCK OS
-          </h1>
+          <div className="space-y-2">
+            <p className="text-blue-400 font-mono text-xs tracking-[0.4em]">SYSTEM v2.0</p>
+            <h1 className="text-7xl md:text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
+              CLOCK OS
+            </h1>
+          </div>
           <button
-            onClick={handleStart}
-            className="px-12 py-5 bg-white text-black font-bold tracking-[0.3em] rounded-full hover:scale-105 active:scale-95 transition-all shadow-2xl uppercase text-xs"
+            onClick={requestSensors}
+            className="group relative px-12 py-5 bg-white text-black font-bold tracking-[0.3em] rounded-full hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.3)] uppercase text-xs"
           >
-            Initialize
+            <span className="relative z-10">Initialize Neural Link</span>
+            <div className="absolute inset-0 rounded-full bg-blue-500 scale-0 group-hover:scale-110 opacity-0 group-hover:opacity-20 transition-all duration-500" />
           </button>
         </div>
       </main>
@@ -227,35 +264,42 @@ export default function App() {
   /* ================= MAIN UI ================= */
 
   return (
-    <main className="relative h-screen w-full overflow-hidden bg-black font-sans">
+    <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1200px]">
 
-      {/* 1. BACKGROUND LAYER - Fixed with Parallax Scale & Blur */}
+      {/* 1. PHYSICAL BACKGROUND LAYER (3D TILT) */}
       <div
-        data-testid="bg-container"
-        className={`absolute inset-0 bg-cover bg-center transition-transform duration-75 ease-out ${isExpanded ? 'scale-125 blur-sm' : 'scale-110 blur-0'
-          }`}
         style={{
           backgroundImage: `url(${currentBg})`,
-          transform: `translate(${parallax.x}px, ${parallax.y}px)` // Apply the tilt here
+          transform: `
+            translate3d(${parallax.x}px, ${parallax.y}px, -50px) 
+            rotateX(${parallax.rotX}deg) 
+            rotateY(${parallax.rotY}deg)
+            scale(1.2)
+          `,
         }}
+        className={`absolute inset-0 bg-cover bg-center transition-transform duration-[150ms] ease-out will-change-transform ${isExpanded ? 'blur-md brightness-50' : 'blur-0'
+          }`}
       />
 
-      {/* 2. OVERLAY LAYER */}
-      <div className="absolute inset-0 bg-black/30 bg-gradient-to-b from-black/20 via-transparent to-black/70" />
+      {/* 2. ATMOSPHERIC OVERLAYS */}
+      <div className="absolute inset-0 bg-black/20 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
 
       {/* 3. LOCATION CONFIRM MODAL */}
       {showLocationConfirm && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl p-6">
-          <div className="bg-black/80 border border-white/10 rounded-3xl p-8 md:p-12 text-center space-y-8 max-w-md w-full animate-in fade-in zoom-in-95 duration-300">
-            <MapPin size={48} className="mx-auto text-blue-400" />
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6">
+          <div className="bg-black/80 border border-white/10 rounded-3xl p-8 md:p-12 text-center space-y-8 max-w-md w-full animate-in fade-in zoom-in-95 duration-500">
+            <div className="relative">
+              <MapPin size={48} className="mx-auto text-blue-400 animate-bounce" />
+              <div className="absolute inset-0 bg-blue-400/20 blur-2xl rounded-full" />
+            </div>
             <div className="space-y-2">
-              <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">Detected Uplink</p>
+              <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">Satellite Uplink Success</p>
               <h3 className="text-3xl font-black text-white uppercase">{data.location}</h3>
             </div>
             <div className="flex gap-4">
               <button
                 onClick={() => handleLocationConfirm(true)}
-                className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-blue-400 hover:text-white transition-colors"
+                className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-blue-500 hover:text-white transition-all transform active:scale-95"
               >
                 Confirm
               </button>
@@ -263,14 +307,14 @@ export default function App() {
                 onClick={() => handleLocationConfirm(false)}
                 className="flex-1 py-4 border border-white/20 text-white font-bold rounded-xl hover:bg-white/5 transition-colors"
               >
-                Manual
+                Override
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. CONTENT LAYER */}
+      {/* 4. FLOATING CONTENT LAYER */}
       <div
         className={`relative z-10 h-full transition-all duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? '-translate-y-[40vh] md:-translate-y-[45vh]' : 'translate-y-0'
           }`}
@@ -278,58 +322,58 @@ export default function App() {
         <Container>
           <div className="flex flex-col justify-between h-screen py-10 md:py-16 lg:py-20">
 
-            {/* HEADER (Quote) */}
-            <header className={`transition-all duration-500 ${isExpanded ? 'opacity-0 -translate-y-10 pointer-events-none' : 'opacity-100'}`}>
-              <div className="flex flex-col gap-3 max-w-2xl">
+            {/* HEADER (Floating Quote) */}
+            <header className={`transition-all duration-700 ${isExpanded ? 'opacity-0 -translate-y-20 scale-95 pointer-events-none' : 'opacity-100'}`}>
+              <div className="flex flex-col gap-3 max-w-2xl bg-black/10 backdrop-blur-md p-6 rounded-2xl border border-white/5">
                 <div className="flex items-start gap-4">
-                  <p className="text-white text-base md:text-lg leading-relaxed font-normal">
+                  <p className="text-white text-base md:text-lg leading-relaxed font-normal italic">
                     {quote.content ? `“${quote.content}”` : "Uplink active..."}
                   </p>
-                  <button onClick={refreshQuote} className="mt-1 text-white/40 hover:text-white transition-colors">
+                  <button onClick={refreshQuote} className="mt-1 text-white/40 hover:text-white hover:rotate-180 transition-all duration-500">
                     <RefreshCw size={18} />
                   </button>
                 </div>
-                <span className="text-white font-bold text-sm tracking-widest uppercase opacity-90">
+                <span className="text-white font-bold text-sm tracking-widest uppercase opacity-90 border-l-2 border-blue-500 pl-3">
                   {quote.author || "System"}
                 </span>
               </div>
             </header>
 
-            {/* FOOTER (Clock Area) */}
+            {/* FOOTER (Main Display) */}
             <footer className="flex flex-col gap-12 lg:flex-row lg:items-end lg:justify-between">
               <div className="space-y-4 md:space-y-6">
-                {/* Greeting */}
-                <div className="flex items-center gap-4 uppercase tracking-[0.3em] text-sm md:text-base font-medium text-white">
-                  {isNightMode ? <Moon size={24} /> : <Sun size={24} />}
+                <div className="flex items-center gap-4 uppercase tracking-[0.3em] text-sm md:text-base font-medium text-white drop-shadow-md">
+                  {isNightMode ? <Moon className="text-blue-300" size={24} /> : <Sun className="text-yellow-400" size={24} />}
                   <span>Good {data.currentHour < 12 ? 'Morning' : data.currentHour < 18 ? 'Afternoon' : 'Evening'}</span>
-                  <span className="hidden md:inline">, it's currently</span>
+                  <span className="hidden md:inline">, Chief</span>
                 </div>
 
-                {/* Massive Time Display */}
                 <div className="flex items-baseline gap-2 md:gap-4">
-                  <h1 className="font-bold text-white leading-none tracking-tighter text-[100px] md:text-[160px] lg:text-[200px]">
+                  <h1 className="font-bold text-white leading-none tracking-tighter text-[90px] md:text-[160px] lg:text-[200px] drop-shadow-2xl">
                     {data.time}
                   </h1>
-                  <span className="text-2xl md:text-4xl lg:text-5xl font-light text-white uppercase tracking-widest">
+                  <span className="text-2xl md:text-4xl lg:text-5xl font-light text-white/70 uppercase tracking-widest">
                     {data.timezoneAbbr}
                   </span>
                 </div>
 
-                {/* Location */}
-                <div className="text-white text-lg md:text-2xl font-bold uppercase tracking-[0.25em]">
-                  In {data.location}
+                <div className="flex items-center gap-3 text-white text-lg md:text-2xl font-bold uppercase tracking-[0.25em]">
+                  <MapPin size={20} className="text-blue-400" />
+                  {data.location}
                 </div>
               </div>
 
-              {/* Toggle Button */}
               <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="group flex items-center gap-4 bg-white hover:bg-white/90 p-2 pl-6 md:pl-8 rounded-full transition-all self-start lg:mb-6"
+                onClick={() => {
+                  triggerHaptic('light');
+                  setIsExpanded(!isExpanded);
+                }}
+                className="group flex items-center gap-4 bg-white hover:bg-blue-500 p-2 pl-6 md:pl-8 rounded-full transition-all self-start lg:mb-6 shadow-xl active:scale-90"
               >
-                <span className="font-bold tracking-[0.3em] text-xs text-black/50 group-hover:text-black transition-colors">
+                <span className="font-bold tracking-[0.3em] text-xs text-black/60 group-hover:text-white transition-colors">
                   {isExpanded ? 'LESS' : 'MORE'}
                 </span>
-                <div className="w-8 h-8 md:w-10 md:h-10 bg-[#303030] group-hover:bg-black rounded-full flex items-center justify-center text-white transition-transform">
+                <div className="w-8 h-8 md:w-10 md:h-10 bg-black group-hover:bg-white group-hover:text-black rounded-full flex items-center justify-center text-white transition-transform">
                   {isExpanded ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
                 </div>
               </button>
@@ -338,16 +382,14 @@ export default function App() {
         </Container>
       </div>
 
-      {/* 5. STATS PANEL - Glassmorphism */}
+      {/* 5. STATS PANEL - Frosted Glass */}
       <div
         className={`absolute bottom-0 left-0 w-full h-[40vh] md:h-[45vh] transition-transform duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? 'translate-y-0' : 'translate-y-full'
           } z-20`}
       >
-        {/* Backdrop glass layer */}
-        <div className={`absolute inset-0 backdrop-blur-3xl ${isNightMode ? 'bg-black/75' : 'bg-white/80'
+        <div className={`absolute inset-0 backdrop-blur-3xl border-t border-white/10 ${isNightMode ? 'bg-black/80' : 'bg-white/70'
           }`} />
 
-        {/* Vertical visual divider for desktop */}
         <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1px] h-1/2 hidden lg:block ${isNightMode ? 'bg-white/10' : 'bg-black/10'
           }`} />
 
@@ -363,16 +405,3 @@ export default function App() {
     </main>
   );
 }
-
-/* ================= STAT BOX COMPONENT ================= */
-
-const StatBox = ({ label, value, isNight }: { label: string; value: string | number; isNight: boolean }) => (
-  <div className="flex md:flex-col justify-between items-center md:items-start gap-1">
-    <span className={`uppercase tracking-[0.2em] text-[10px] md:text-xs font-bold ${isNight ? 'text-white/60' : 'text-black/60'}`}>
-      {label}
-    </span>
-    <div className={`text-2xl md:text-4xl lg:text-6xl font-bold tracking-tight ${isNight ? 'text-white' : 'text-black'}`}>
-      {value}
-    </div>
-  </div>
-);
