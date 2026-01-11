@@ -60,6 +60,28 @@ export default function App() {
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  const [parallax, setParallax] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // Gamma is left-to-right tilt (-90 to 90)
+      // Beta is front-to-back tilt (-180 to 180)
+      const x = e.gamma ? (e.gamma / 15) : 0;
+      const y = e.beta ? (e.beta - 45) / 15 : 0; // Subtracting 45 assumes the user holds the phone at an angle
+
+      setParallax({ x, y });
+    };
+
+    // Check if the browser requires permission (iOS requirement)
+    if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      // We will trigger this on the "INITIALIZE" button click later
+    } else {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+
+    return () => window.removeEventListener('deviceorientation', handleOrientation);
+  }, []);
+
   const safeSpeak = (text: string, onEnd?: () => void) => {
     if (isSpeaking) return;
     setIsSpeaking(true);
@@ -138,6 +160,8 @@ export default function App() {
     return () => clearInterval(timer);
   }, [hasInitialized]);
 
+
+
   const isNightMode = useMemo(() => {
     if (!data) return false;
     return data.currentHour >= 18 || data.currentHour < 6;
@@ -212,9 +236,12 @@ export default function App() {
       {/* 1. BACKGROUND LAYER - Fixed with Parallax Scale & Blur */}
       <div
         data-testid="bg-container"
-        className={`absolute inset-0 bg-cover bg-center transition-all duration-[1500ms] ease-out ${isExpanded ? 'scale-110 blur-sm' : 'scale-100 blur-0'
+        className={`absolute inset-0 bg-cover bg-center transition-transform duration-75 ease-out ${isExpanded ? 'scale-125 blur-sm' : 'scale-110 blur-0'
           }`}
-        style={{ backgroundImage: `url(${currentBg})` }}
+        style={{
+          backgroundImage: `url(${currentBg})`,
+          transform: `translate(${parallax.x}px, ${parallax.y}px)` // Apply the tilt here
+        }}
       />
 
       {/* 2. OVERLAY LAYER */}
