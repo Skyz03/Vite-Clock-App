@@ -10,12 +10,49 @@ import {
   MapPin,
   Cpu
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 
 // Assets
 import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
 import bgImageNighttime from './assets/desktop/bg-image-nighttime.jpg';
 // @ts-ignore
 import localQuotes from './data/quote.js';
+
+/* ================= UTILITY FUNCTIONS ================= */
+
+// Calculate day of year (1-365/366)
+const getDayOfYear = (date: Date): number => {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const diff = date.getTime() - start.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
+// Calculate ISO week number (1-52/53)
+const getWeekNumber = (date: Date): number => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+};
+
+/* ================= DATA FETCHING (Outside Component) ================= */
+
+const fetchSystemUplink = async () => {
+  const [geo, time] = await Promise.all([
+    axios.get('https://free.freeipapi.com/api/json/', { timeout: 4000 }),
+    axios.get('https://worldtimeapi.org/api/ip', { timeout: 4000 })
+  ]);
+  
+  return {
+    location: `${geo.data.cityName}, ${geo.data.countryName}`,
+    timezone: time.data.timezone,
+    timezoneAbbr: time.data.abbreviation,
+    dayOfYear: time.data.day_of_year,
+    dayOfWeek: time.data.day_of_week,
+    weekNumber: time.data.week_number
+  };
+};
 
 /* ================= TYPES ================= */
 
@@ -58,10 +95,47 @@ const StatBox = ({ label, value, isNight }: { label: string; value: string | num
 /* ================= MAIN APP ================= */
 
 export default function App() {
-  const [data, setData] = useState<ClockData | null>(null);
+  // 1. TanStack Query Hook
+  // This replaces your entire "init" useEffect and manual axios calls
+  const { data: serverData, isPending: isUplinkLoading } = useQuery({
+    queryKey: ['systemUplink'],
+    queryFn: fetchSystemUplink,
+    staleTime: 1000 * 60 * 60, // Consider data "fresh" for 1 hour
+    refetchOnWindowFocus: true, // Auto-update when user returns to tab
+  });
+
+  // 2. Local Time State (Updates every second)
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 3. Merged Data Object
+  // We use useMemo to combine Server Data with our Local Clock
+  const data: ClockData = useMemo(() => {
+    const fallbackLocation = {
+      location: 'Local System',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezoneAbbr: 'LOC',
+    };
+
+    const baseData = serverData || fallbackLocation;
+
+    // Always calculate date-based values from local time for accuracy
+    return {
+      ...baseData,
+      dayOfYear: getDayOfYear(currentTime),
+      dayOfWeek: currentTime.getDay(),
+      weekNumber: getWeekNumber(currentTime),
+      time: currentTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      currentHour: currentTime.getHours(),
+      rawTime: currentTime
+    };
+  }, [serverData, currentTime]);
+
   const [quote, setQuote] = useState<Quote>({ content: '', author: '' });
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -69,6 +143,10 @@ export default function App() {
   // Engagement States
   const [parallax, setParallax] = useState({ x: 0, y: 0, rotX: 0, rotY: 0 });
   const { speak } = useVoiceAssistant();
+
+  // 4. Update the "isLoading" check
+  // isUplinkLoading is true only on the very first boot
+  const isLoading = isUplinkLoading && !hasInitialized;
 
   /* 1. HAPTIC FEEDBACK ENGINE */
   const triggerHaptic = useCallback((intensity: 'light' | 'medium' | 'heavy') => {
@@ -134,62 +212,10 @@ export default function App() {
     });
   };
 
+  // Initialize quote on mount
   useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
-      const now = new Date();
-      refreshQuote();
-
-      let newData: ClockData = {
-        time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-        location: 'Local System',
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        timezoneAbbr: 'LOC',
-        dayOfYear: 0,
-        dayOfWeek: now.getDay(),
-        weekNumber: 0,
-        currentHour: now.getHours(),
-        rawTime: now
-      };
-
-      try {
-        const [geo, time] = await Promise.all([
-          axios.get('https://free.freeipapi.com/api/json/', { timeout: 3000 }),
-          axios.get('https://worldtimeapi.org/api/ip', { timeout: 3000 })
-        ]);
-
-        newData = {
-          ...newData,
-          location: `${geo.data.cityName}, ${geo.data.countryName}`,
-          timezone: time.data.timezone,
-          timezoneAbbr: time.data.abbreviation,
-          dayOfYear: time.data.day_of_year,
-          dayOfWeek: time.data.day_of_week,
-          weekNumber: time.data.week_number
-        };
-      } catch (error) {
-        console.error('⚠️ Uplink Offline:', error);
-      } finally {
-        setData(newData);
-        setIsLoading(false);
-      }
-    };
-    init();
+    refreshQuote();
   }, []);
-
-  useEffect(() => {
-    if (!hasInitialized) return;
-    const timer = setInterval(() => {
-      const now = new Date();
-      setData(prev => prev ? {
-        ...prev,
-        time: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-        currentHour: now.getHours(),
-        rawTime: now
-      } : null);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [hasInitialized]);
 
   const isNightMode = useMemo(() => {
     if (!data) return false;
@@ -224,7 +250,7 @@ export default function App() {
     }
   };
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono animate-pulse gap-4">
         <Cpu className="animate-spin text-blue-500" size={32} />
