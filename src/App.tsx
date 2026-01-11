@@ -11,6 +11,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { motion, useSpring, useTransform, AnimatePresence } from 'framer-motion';
 
 // Assets
 import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
@@ -140,13 +141,28 @@ export default function App() {
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Engagement States
-  const [parallax, setParallax] = useState({ x: 0, y: 0, rotX: 0, rotY: 0 });
   const { speak } = useVoiceAssistant();
 
   // 4. Update the "isLoading" check
   // isUplinkLoading is true only on the very first boot
   const isLoading = isUplinkLoading && !hasInitialized;
+
+  /* ================= 1. MOTION ENGINE ================= */
+  // Spring physics: Damping removes jitter; Stiffness adds responsiveness
+  const springConfig = { damping: 30, stiffness: 200, mass: 0.5 };
+  const xRaw = useSpring(0, springConfig);
+  const yRaw = useSpring(0, springConfig);
+
+  // Map the raw sensor data to specific pixel/rotation ranges
+  // Background moves more for deep depth
+  const bgX = useTransform(xRaw, [-1, 1], [-40, 40]);
+  const bgY = useTransform(yRaw, [-1, 1], [-40, 40]);
+  const bgRotateX = useTransform(yRaw, [-1, 1], [5, -5]);
+  const bgRotateY = useTransform(xRaw, [-1, 1], [-5, 5]);
+
+  // UI moves slightly in the opposite direction (Parallax)
+  const uiX = useTransform(xRaw, [-1, 1], [10, -10]);
+  const uiY = useTransform(yRaw, [-1, 1], [10, -10]);
 
   /* 1. HAPTIC FEEDBACK ENGINE */
   const triggerHaptic = useCallback((intensity: 'light' | 'medium' | 'heavy') => {
@@ -161,15 +177,12 @@ export default function App() {
 
   /* 2. DEVICE ORIENTATION LOGIC */
   const handleOrientation = (e: DeviceOrientationEvent) => {
-    const x = e.gamma ? (e.gamma / 12) : 0; // Left/Right tilt
-    const y = e.beta ? (e.beta - 45) / 12 : 0; // Front/Back tilt (offset for natural holding angle)
-
-    setParallax({
-      x: x * -1.5,
-      y: y * -1.5,
-      rotX: y * 0.8,
-      rotY: x * -0.8
-    });
+    // Normalize the input to a -1 to 1 range
+    const x = e.gamma ? (e.gamma / 20) : 0; 
+    const y = e.beta ? (e.beta - 45) / 20 : 0;
+    
+    xRaw.set(x);
+    yRaw.set(y);
   };
 
   const requestSensors = async () => {
@@ -290,66 +303,79 @@ export default function App() {
   /* ================= MAIN UI ================= */
 
   return (
-    <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1200px]">
+    <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1500px]">
 
-      {/* 1. PHYSICAL BACKGROUND LAYER (3D TILT) */}
-      <div
+      {/* 1. PHYSICAL BACKGROUND (Motion-Optimized) */}
+      <motion.div
         style={{
           backgroundImage: `url(${currentBg})`,
-          transform: `
-            translate3d(${parallax.x}px, ${parallax.y}px, -50px) 
-            rotateX(${parallax.rotX}deg) 
-            rotateY(${parallax.rotY}deg)
-            scale(1.2)
-          `,
+          x: bgX,
+          y: bgY,
+          rotateX: bgRotateX,
+          rotateY: bgRotateY,
+          scale: 1.25,
+          translateZ: -100, // True 3D depth
         }}
-        className={`absolute inset-0 bg-cover bg-center transition-transform duration-[150ms] ease-out will-change-transform ${isExpanded ? 'blur-md brightness-50' : 'blur-0'
-          }`}
+        className={`absolute inset-0 bg-cover bg-center will-change-transform transition-all duration-1000 ${
+          isExpanded ? 'blur-md brightness-50' : 'blur-0'
+        }`}
       />
 
       {/* 2. ATMOSPHERIC OVERLAYS */}
       <div className="absolute inset-0 bg-black/20 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
 
-      {/* 3. LOCATION CONFIRM MODAL */}
-      {showLocationConfirm && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6">
-          <div className="bg-black/80 border border-white/10 rounded-3xl p-8 md:p-12 text-center space-y-8 max-w-md w-full animate-in fade-in zoom-in-95 duration-500">
-            <div className="relative">
-              <MapPin size={48} className="mx-auto text-blue-400 animate-bounce" />
-              <div className="absolute inset-0 bg-blue-400/20 blur-2xl rounded-full" />
+      {/* 3. LOCATION CONFIRM MODAL (AnimatePresence for smooth entry/exit) */}
+      <AnimatePresence>
+        {showLocationConfirm && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, backdropFilter: "blur(0px)" }}
+            animate={{ opacity: 1, scale: 1, backdropFilter: "blur(24px)" }}
+            exit={{ opacity: 0, scale: 0.9, backdropFilter: "blur(0px)" }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          >
+            <div className="bg-black/80 border border-white/10 rounded-3xl p-8 md:p-12 text-center space-y-8 max-w-md w-full">
+              <div className="relative">
+                <MapPin size={48} className="mx-auto text-blue-400 animate-bounce" />
+                <div className="absolute inset-0 bg-blue-400/20 blur-2xl rounded-full" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">Satellite Uplink Success</p>
+                <h3 className="text-3xl font-black text-white uppercase">{data.location}</h3>
+              </div>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => handleLocationConfirm(true)}
+                  className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-blue-500 hover:text-white transition-all transform active:scale-95"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => handleLocationConfirm(false)}
+                  className="flex-1 py-4 border border-white/20 text-white font-bold rounded-xl hover:bg-white/5 transition-colors"
+                >
+                  Override
+                </button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">Satellite Uplink Success</p>
-              <h3 className="text-3xl font-black text-white uppercase">{data.location}</h3>
-            </div>
-            <div className="flex gap-4">
-              <button
-                onClick={() => handleLocationConfirm(true)}
-                className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-blue-500 hover:text-white transition-all transform active:scale-95"
-              >
-                Confirm
-              </button>
-              <button
-                onClick={() => handleLocationConfirm(false)}
-                className="flex-1 py-4 border border-white/20 text-white font-bold rounded-xl hover:bg-white/5 transition-colors"
-              >
-                Override
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 4. FLOATING CONTENT LAYER */}
-      <div
-        className={`relative z-10 h-full transition-all duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? '-translate-y-[40vh] md:-translate-y-[45vh]' : 'translate-y-0'
-          }`}
+      <motion.div
+        style={{ x: uiX, y: uiY }}
+        className={`relative z-10 h-full transition-all duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${
+          isExpanded ? '-translate-y-[40vh] md:-translate-y-[45vh]' : 'translate-y-0'
+        }`}
       >
         <Container>
           <div className="flex flex-col justify-between h-screen py-10 md:py-16 lg:py-20">
 
-            {/* HEADER (Floating Quote) */}
-            <header className={`transition-all duration-700 ${isExpanded ? 'opacity-0 -translate-y-20 scale-95 pointer-events-none' : 'opacity-100'}`}>
+            {/* HEADER with smooth fade */}
+            <motion.header 
+              animate={{ opacity: isExpanded ? 0 : 1, y: isExpanded ? -20 : 0 }}
+              className="transition-all"
+            >
               <div className="flex flex-col gap-3 max-w-2xl bg-black/10 backdrop-blur-md p-6 rounded-2xl border border-white/5">
                 <div className="flex items-start gap-4">
                   <p className="text-white text-base md:text-lg leading-relaxed font-normal italic">
@@ -363,11 +389,11 @@ export default function App() {
                   {quote.author || "System"}
                 </span>
               </div>
-            </header>
+            </motion.header>
 
             {/* FOOTER (Main Display) */}
             <footer className="flex flex-col gap-12 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-4 md:space-y-6">
+              <motion.div layout className="space-y-4 md:space-y-6">
                 <div className="flex items-center gap-4 uppercase tracking-[0.3em] text-sm md:text-base font-medium text-white drop-shadow-md">
                   {isNightMode ? <Moon className="text-blue-300" size={24} /> : <Sun className="text-yellow-400" size={24} />}
                   <span>Good {data.currentHour < 12 ? 'Morning' : data.currentHour < 18 ? 'Afternoon' : 'Evening'}</span>
@@ -387,7 +413,7 @@ export default function App() {
                   <MapPin size={20} className="text-blue-400" />
                   {data.location}
                 </div>
-              </div>
+              </motion.div>
 
               <button
                 onClick={() => {
@@ -406,12 +432,14 @@ export default function App() {
             </footer>
           </div>
         </Container>
-      </div>
+      </motion.div>
 
-      {/* 5. STATS PANEL - Frosted Glass */}
-      <div
-        className={`absolute bottom-0 left-0 w-full h-[40vh] md:h-[45vh] transition-transform duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? 'translate-y-0' : 'translate-y-full'
-          } z-20`}
+      {/* 5. STATS PANEL */}
+      <motion.div
+        initial={false}
+        animate={{ y: isExpanded ? "0%" : "100%" }}
+        transition={{ type: "spring", damping: 25, stiffness: 120 }}
+        className="absolute bottom-0 left-0 w-full h-[40vh] md:h-[45vh] z-20"
       >
         <div className={`absolute inset-0 backdrop-blur-3xl border-t border-white/10 ${isNightMode ? 'bg-black/80' : 'bg-white/70'
           }`} />
@@ -427,7 +455,7 @@ export default function App() {
             <StatBox label="Week number" value={data.weekNumber} isNight={isNightMode} />
           </div>
         </Container>
-      </div>
+      </motion.div>
     </main>
   );
 }
