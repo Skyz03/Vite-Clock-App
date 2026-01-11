@@ -35,10 +35,6 @@ interface Quote {
   author: string;
 }
 
-const DAY_NAMES = [
-  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
-];
-
 /* ================= LAYOUT ================= */
 
 const Container = ({ children }: { children: React.ReactNode }) => (
