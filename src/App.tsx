@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { motion, useSpring, useTransform, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 // Assets
 import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
@@ -44,7 +45,7 @@ const fetchSystemUplink = async () => {
     axios.get('https://free.freeipapi.com/api/json/', { timeout: 4000 }),
     axios.get('https://worldtimeapi.org/api/ip', { timeout: 4000 })
   ]);
-  
+
   return {
     location: `${geo.data.cityName}, ${geo.data.countryName}`,
     timezone: time.data.timezone,
@@ -104,7 +105,12 @@ export default function App() {
     staleTime: 1000 * 60 * 60, // Consider data "fresh" for 1 hour
     refetchOnWindowFocus: true, // Auto-update when user returns to tab
   });
-
+  const { t, i18n } = useTranslation();
+  const toggleLanguage = () => {
+    const newLang = i18n.language === 'en' ? 'fr' : 'en';
+    i18n.changeLanguage(newLang);
+    triggerHaptic('light');
+  };
   // 2. Local Time State (Updates every second)
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -178,9 +184,9 @@ export default function App() {
   /* 2. DEVICE ORIENTATION LOGIC */
   const handleOrientation = (e: DeviceOrientationEvent) => {
     // Normalize the input to a -1 to 1 range
-    const x = e.gamma ? (e.gamma / 20) : 0; 
+    const x = e.gamma ? (e.gamma / 20) : 0;
     const y = e.beta ? (e.beta - 45) / 20 : 0;
-    
+
     xRaw.set(x);
     yRaw.set(y);
   };
@@ -272,6 +278,8 @@ export default function App() {
     );
   }
 
+
+
   /* ================= START SCREEN ================= */
 
   if (!hasInitialized) {
@@ -316,9 +324,8 @@ export default function App() {
           scale: 1.25,
           translateZ: -100, // True 3D depth
         }}
-        className={`absolute inset-0 bg-cover bg-center will-change-transform transition-all duration-1000 ${
-          isExpanded ? 'blur-md brightness-50' : 'blur-0'
-        }`}
+        className={`absolute inset-0 bg-cover bg-center will-change-transform transition-all duration-1000 ${isExpanded ? 'blur-md brightness-50' : 'blur-0'
+          }`}
       />
 
       {/* 2. ATMOSPHERIC OVERLAYS */}
@@ -327,7 +334,7 @@ export default function App() {
       {/* 3. LOCATION CONFIRM MODAL (AnimatePresence for smooth entry/exit) */}
       <AnimatePresence>
         {showLocationConfirm && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.9, backdropFilter: "blur(0px)" }}
             animate={{ opacity: 1, scale: 1, backdropFilter: "blur(24px)" }}
             exit={{ opacity: 0, scale: 0.9, backdropFilter: "blur(0px)" }}
@@ -364,15 +371,14 @@ export default function App() {
       {/* 4. FLOATING CONTENT LAYER */}
       <motion.div
         style={{ x: uiX, y: uiY }}
-        className={`relative z-10 h-full transition-all duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${
-          isExpanded ? '-translate-y-[40vh] md:-translate-y-[45vh]' : 'translate-y-0'
-        }`}
+        className={`relative z-10 h-full transition-all duration-[1000ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${isExpanded ? '-translate-y-[40vh] md:-translate-y-[45vh]' : 'translate-y-0'
+          }`}
       >
         <Container>
           <div className="flex flex-col justify-between h-screen py-10 md:py-16 lg:py-20">
 
             {/* HEADER with smooth fade */}
-            <motion.header 
+            <motion.header
               animate={{ opacity: isExpanded ? 0 : 1, y: isExpanded ? -20 : 0 }}
               className="transition-all"
             >
@@ -396,7 +402,7 @@ export default function App() {
               <motion.div layout className="space-y-4 md:space-y-6">
                 <div className="flex items-center gap-4 uppercase tracking-[0.3em] text-sm md:text-base font-medium text-white drop-shadow-md">
                   {isNightMode ? <Moon className="text-blue-300" size={24} /> : <Sun className="text-yellow-400" size={24} />}
-                  <span>Good {data.currentHour < 12 ? 'Morning' : data.currentHour < 18 ? 'Afternoon' : 'Evening'}</span>
+                  {t(`greeting.${data.currentHour < 12 ? 'morning' : data.currentHour < 18 ? 'afternoon' : 'evening'}`)}
                   <span className="hidden md:inline">, Chief</span>
                 </div>
 
