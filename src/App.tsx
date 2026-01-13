@@ -1,3 +1,10 @@
+//The Override feature helping to search for the location
+//Time Zone change as per the IP address tracking of the location
+//The Localization feature working smoothly read to for per the possibility.
+//Responsive background screen for various design time of the day
+//Some sort of animation wheather that be framer or GSAP
+//Make it something like a portfolio worthy
+
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useVoiceAssistant } from './hooks/useVoiceAssistant';
@@ -105,12 +112,14 @@ export default function App() {
     staleTime: 1000 * 60 * 60, // Consider data "fresh" for 1 hour
     refetchOnWindowFocus: true, // Auto-update when user returns to tab
   });
+
   const { t, i18n } = useTranslation();
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'fr' : 'en';
     i18n.changeLanguage(newLang);
     triggerHaptic('light');
   };
+
   // 2. Local Time State (Updates every second)
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
