@@ -1,8 +1,7 @@
-//The Override feature helping to search for the location
-//Time Zone change as per the IP address tracking of the location
 //The Localization feature working smoothly read to for per the possibility.
 //Responsive background screen for various design time of the day
 //Make it something like a portfolio worthy
+//The override feature needs to be more robust and user friendly.
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
@@ -46,7 +45,7 @@ const getWeekNumber = (date: Date): number => {
 
 /* ================= DATA FETCHING (Outside Component) ================= */
 
-const fetchSystemUplink = async () => {
+const fetchSystemUplink = async (): Promise<UplinkData> => {
   // Capture client time right before the request so we can keep the IP-based
   // time in sync with the local ticking clock.
   const clientTimeAtRequest = Date.now();
@@ -89,6 +88,20 @@ interface Quote {
   author: string;
 }
 
+interface TimeSourceMeta {
+  ipTimeAtRequest?: number;
+  clientTimeAtRequest?: number;
+}
+
+type UplinkData = {
+  location: string;
+  timezone: string;
+  timezoneAbbr: string;
+  dayOfYear?: number;
+  dayOfWeek?: number;
+  weekNumber?: number;
+} & TimeSourceMeta;
+
 /* ================= COMPONENTS ================= */
 
 const Container = ({ children }: { children: React.ReactNode }) => (
@@ -113,7 +126,7 @@ const StatBox = ({ label, value, isNight }: { label: string; value: string | num
 export default function App() {
   // 1. TanStack Query Hook
   // This replaces your entire "init" useEffect and manual axios calls
-  const { data: serverData, isPending: isUplinkLoading } = useQuery({
+  const { data: serverData, isPending: isUplinkLoading } = useQuery<UplinkData>({
     queryKey: ['systemUplink'],
     queryFn: fetchSystemUplink,
     staleTime: 1000 * 60 * 60, // Consider data "fresh" for 1 hour
@@ -134,9 +147,21 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 3. Merged Data Object
+  // 3. UI & override state
+  const [quote, setQuote] = useState<Quote>({ content: '', author: '' });
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [showLocationConfirm, setShowLocationConfirm] = useState(false);
+  const [isOverrideMode, setIsOverrideMode] = useState(false);
+  const [overrideQuery, setOverrideQuery] = useState('');
+  const [isOverrideLoading, setIsOverrideLoading] = useState(false);
+  const [overrideError, setOverrideError] = useState('');
+  const [manualOverride, setManualOverride] = useState<UplinkData | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // 4. Merged Data Object
   // We use useMemo to combine Server Data with our Local Clock
-  // and keep the displayed time locked to the IP-based timezone.
+  // and keep the displayed time locked to the IP-based or overridden timezone.
   const data: ClockData = useMemo(() => {
     const fallbackLocation = {
       location: 'Local System',
@@ -144,14 +169,15 @@ export default function App() {
       timezoneAbbr: 'LOC',
     };
 
-    const baseData = serverData || fallbackLocation;
+    const baseData = manualOverride || serverData || fallbackLocation;
 
     // If we have IP-based time data, compute the offset between local time and
     // the IP timezone time at the moment of the request. Then apply that offset
     // to the ticking local clock so it stays in sync with the remote timezone.
     let effectiveNow = currentTime;
-    if (serverData && serverData.ipTimeAtRequest && serverData.clientTimeAtRequest) {
-      const offsetMs = serverData.ipTimeAtRequest - serverData.clientTimeAtRequest;
+    const offsetSource = manualOverride || serverData;
+    if (offsetSource && offsetSource.ipTimeAtRequest && offsetSource.clientTimeAtRequest) {
+      const offsetMs = offsetSource.ipTimeAtRequest - offsetSource.clientTimeAtRequest;
       effectiveNow = new Date(currentTime.getTime() + offsetMs);
     }
 
@@ -168,13 +194,7 @@ export default function App() {
       currentHour: effectiveNow.getHours(),
       rawTime: effectiveNow
     };
-  }, [serverData, currentTime]);
-
-  const [quote, setQuote] = useState<Quote>({ content: '', author: '' });
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [hasInitialized, setHasInitialized] = useState(false);
-  const [showLocationConfirm, setShowLocationConfirm] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  }, [serverData, currentTime, manualOverride]);
 
   const { speak } = useVoiceAssistant();
 
@@ -316,6 +336,64 @@ export default function App() {
       })}.`);
     } else {
       safeSpeak('Proceeding with manual override.');
+      setIsOverrideMode(true);
+      setShowLocationConfirm(true);
+    }
+  };
+
+  const handleOverrideSearch = async () => {
+    if (!overrideQuery.trim()) {
+      setOverrideError('Enter a city or place name.');
+      return;
+    }
+    setOverrideError('');
+    setIsOverrideLoading(true);
+    try {
+      // 1) Find coordinates via Nominatim
+      const geo = await axios.get('https://nominatim.openstreetmap.org/search', {
+        params: { format: 'json', q: overrideQuery, limit: 1 },
+        headers: { 'Accept-Language': 'en', 'User-Agent': 'Clock-OS/1.0' }
+      });
+      const hit = geo.data?.[0];
+      if (!hit) {
+        setOverrideError('Location not found. Try another query.');
+        return;
+      }
+
+      // 2) Find timezone from coordinates
+      const tz = await axios.get('https://api.open-meteo.com/v1/timezone', {
+        params: { latitude: hit.lat, longitude: hit.lon }
+      });
+      const timezone = tz.data?.timezone;
+      if (!timezone) {
+        setOverrideError('Could not determine timezone for that place.');
+        return;
+      }
+
+      // 3) Get current time data for that timezone
+      const timeRes = await axios.get(`https://worldtimeapi.org/api/timezone/${timezone}`);
+      const ipDate = new Date(timeRes.data.datetime);
+
+      setManualOverride({
+        location: hit.display_name,
+        timezone,
+        timezoneAbbr: timeRes.data.abbreviation,
+        dayOfYear: timeRes.data.day_of_year,
+        dayOfWeek: timeRes.data.day_of_week,
+        weekNumber: timeRes.data.week_number,
+        ipTimeAtRequest: ipDate.getTime(),
+        clientTimeAtRequest: Date.now()
+      });
+
+      setShowLocationConfirm(false);
+      setIsOverrideMode(false);
+      setHasInitialized(true);
+      triggerHaptic('medium');
+    } catch (err) {
+      console.error(err);
+      setOverrideError('Override failed. Please try again.');
+    } finally {
+      setIsOverrideLoading(false);
     }
   };
 
@@ -428,12 +506,34 @@ export default function App() {
                   Confirm
                 </button>
                 <button
-                  onClick={() => handleLocationConfirm(false)}
+                  onClick={() => {
+                    setIsOverrideMode(true);
+                    setOverrideError('');
+                  }}
                   className="flex-1 py-4 border border-white/20 text-white font-bold rounded-xl hover:bg-white/5 transition-colors"
                 >
                   Override
                 </button>
               </div>
+              {isOverrideMode && (
+                <div className="space-y-3 text-left">
+                  <label className="text-white/60 text-xs uppercase tracking-[0.25em]">Search city or place</label>
+                  <input
+                    value={overrideQuery}
+                    onChange={(e) => setOverrideQuery(e.target.value)}
+                    placeholder="e.g. Tokyo, New York, Paris"
+                    className="w-full bg-white/5 text-white rounded-xl px-4 py-3 border border-white/10 placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={handleOverrideSearch}
+                    disabled={isOverrideLoading}
+                    className="w-full py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    {isOverrideLoading ? 'Searching...' : 'Set Override'}
+                  </button>
+                  {overrideError && <p className="text-red-400 text-sm">{overrideError}</p>}
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -488,7 +588,17 @@ export default function App() {
 
                 <div className="flex items-center gap-3 text-white text-lg md:text-2xl font-bold uppercase tracking-[0.25em]">
                   <MapPin size={20} className="text-blue-400" />
-                  {data.location}
+                  <span className="truncate max-w-[46vw] md:max-w-[420px]">{data.location}</span>
+                  <button
+                    onClick={() => {
+                      setShowLocationConfirm(true);
+                      setIsOverrideMode(true);
+                      setOverrideError('');
+                    }}
+                    className="text-xs font-semibold tracking-[0.2em] text-white/60 hover:text-white underline-offset-4 underline"
+                  >
+                    Change
+                  </button>
                 </div>
               </motion.div>
 
@@ -525,25 +635,25 @@ export default function App() {
           }`} />
 
         <Container>
-        <motion.div
-          className="relative h-full py-16 grid grid-cols-1 md:grid-cols-2 gap-y-8 md:gap-y-12 lg:gap-x-24 items-center"
-          variants={statsVariants}
-          initial="hidden"
-          animate="show"
-        >
-          <motion.div variants={statItem}>
-            <StatBox label="Current Timezone" value={data.timezone} isNight={isNightMode} />
+          <motion.div
+            className="relative h-full py-16 grid grid-cols-1 md:grid-cols-2 gap-y-8 md:gap-y-12 lg:gap-x-24 items-center"
+            variants={statsVariants}
+            initial="hidden"
+            animate="show"
+          >
+            <motion.div variants={statItem}>
+              <StatBox label="Current Timezone" value={data.timezone} isNight={isNightMode} />
+            </motion.div>
+            <motion.div variants={statItem}>
+              <StatBox label="Day of the week" value={data.dayOfWeek} isNight={isNightMode} />
+            </motion.div>
+            <motion.div variants={statItem}>
+              <StatBox label="Day of the year" value={data.dayOfYear} isNight={isNightMode} />
+            </motion.div>
+            <motion.div variants={statItem}>
+              <StatBox label="Week number" value={data.weekNumber} isNight={isNightMode} />
+            </motion.div>
           </motion.div>
-          <motion.div variants={statItem}>
-            <StatBox label="Day of the week" value={data.dayOfWeek} isNight={isNightMode} />
-          </motion.div>
-          <motion.div variants={statItem}>
-            <StatBox label="Day of the year" value={data.dayOfYear} isNight={isNightMode} />
-          </motion.div>
-          <motion.div variants={statItem}>
-            <StatBox label="Week number" value={data.weekNumber} isNight={isNightMode} />
-          </motion.div>
-        </motion.div>
         </Container>
       </motion.div>
     </main>
