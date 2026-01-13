@@ -2,7 +2,6 @@
 //Time Zone change as per the IP address tracking of the location
 //The Localization feature working smoothly read to for per the possibility.
 //Responsive background screen for various design time of the day
-//Some sort of animation wheather that be framer or GSAP
 //Make it something like a portfolio worthy
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
@@ -18,7 +17,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { motion, useSpring, useTransform, AnimatePresence } from 'framer-motion';
+import { motion, useSpring, useTransform, AnimatePresence, Variants } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 // Assets
@@ -48,10 +47,16 @@ const getWeekNumber = (date: Date): number => {
 /* ================= DATA FETCHING (Outside Component) ================= */
 
 const fetchSystemUplink = async () => {
+  // Capture client time right before the request so we can keep the IP-based
+  // time in sync with the local ticking clock.
+  const clientTimeAtRequest = Date.now();
   const [geo, time] = await Promise.all([
     axios.get('https://free.freeipapi.com/api/json/', { timeout: 4000 }),
     axios.get('https://worldtimeapi.org/api/ip', { timeout: 4000 })
   ]);
+
+  // WorldTime API returns the current datetime in the target timezone.
+  const ipDate = new Date(time.data.datetime);
 
   return {
     location: `${geo.data.cityName}, ${geo.data.countryName}`,
@@ -59,7 +64,9 @@ const fetchSystemUplink = async () => {
     timezoneAbbr: time.data.abbreviation,
     dayOfYear: time.data.day_of_year,
     dayOfWeek: time.data.day_of_week,
-    weekNumber: time.data.week_number
+    weekNumber: time.data.week_number,
+    ipTimeAtRequest: ipDate.getTime(),
+    clientTimeAtRequest
   };
 };
 
@@ -129,6 +136,7 @@ export default function App() {
 
   // 3. Merged Data Object
   // We use useMemo to combine Server Data with our Local Clock
+  // and keep the displayed time locked to the IP-based timezone.
   const data: ClockData = useMemo(() => {
     const fallbackLocation = {
       location: 'Local System',
@@ -138,15 +146,27 @@ export default function App() {
 
     const baseData = serverData || fallbackLocation;
 
-    // Always calculate date-based values from local time for accuracy
+    // If we have IP-based time data, compute the offset between local time and
+    // the IP timezone time at the moment of the request. Then apply that offset
+    // to the ticking local clock so it stays in sync with the remote timezone.
+    let effectiveNow = currentTime;
+    if (serverData && serverData.ipTimeAtRequest && serverData.clientTimeAtRequest) {
+      const offsetMs = serverData.ipTimeAtRequest - serverData.clientTimeAtRequest;
+      effectiveNow = new Date(currentTime.getTime() + offsetMs);
+    }
+
     return {
       ...baseData,
-      dayOfYear: getDayOfYear(currentTime),
-      dayOfWeek: currentTime.getDay(),
-      weekNumber: getWeekNumber(currentTime),
-      time: currentTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-      currentHour: currentTime.getHours(),
-      rawTime: currentTime
+      dayOfYear: getDayOfYear(effectiveNow),
+      dayOfWeek: effectiveNow.getDay(),
+      weekNumber: getWeekNumber(effectiveNow),
+      time: effectiveNow.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: baseData.timezone
+      }),
+      currentHour: effectiveNow.getHours(),
+      rawTime: effectiveNow
     };
   }, [serverData, currentTime]);
 
@@ -252,6 +272,27 @@ export default function App() {
 
   const currentBg = isNightMode ? bgImageNighttime : bgImageDaytime;
 
+  // Gentle floating accents for extra motion depth
+  const floatingOrbs = [
+    { size: 260, top: '12%', left: '18%', color: 'rgba(59,130,246,0.25)', duration: 20 },
+    { size: 200, top: '68%', left: '76%', color: 'rgba(236,72,153,0.18)', duration: 18 },
+    { size: 180, top: '30%', left: '65%', color: 'rgba(16,185,129,0.2)', duration: 22 },
+  ];
+
+  const statsVariants: Variants = {
+    hidden: { opacity: 0, y: 24 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: { staggerChildren: 0.08, delayChildren: 0.1, type: 'spring', damping: 18, stiffness: 160 }
+    }
+  };
+
+  const statItem: Variants = {
+    hidden: { opacity: 0, y: 14 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 20, stiffness: 180 } }
+  };
+
   const handleStart = () => {
     setHasInitialized(true);
     if (!data) return;
@@ -322,6 +363,16 @@ export default function App() {
   return (
     <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1500px]">
 
+      {/* Language toggle with motion feedback */}
+      <motion.button
+        onClick={toggleLanguage}
+        className="absolute top-6 right-6 z-30 px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+        whileHover={{ scale: 1.05, opacity: 1 }}
+        whileTap={{ scale: 0.95 }}
+      >
+        {i18n.language === 'en' ? 'FR' : 'EN'}
+      </motion.button>
+
       {/* 1. PHYSICAL BACKGROUND (Motion-Optimized) */}
       <motion.div
         style={{
@@ -339,6 +390,17 @@ export default function App() {
 
       {/* 2. ATMOSPHERIC OVERLAYS */}
       <div className="absolute inset-0 bg-black/20 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
+
+      {/* 2.5 FLOATING ORBS */}
+      {floatingOrbs.map((orb, idx) => (
+        <motion.div
+          key={idx}
+          className="absolute rounded-full blur-3xl mix-blend-screen pointer-events-none"
+          style={{ width: orb.size, height: orb.size, top: orb.top, left: orb.left, background: `radial-gradient(circle at 30% 30%, ${orb.color}, transparent 60%)` }}
+          animate={{ x: [0, 20, -18, 0], y: [0, -24, 18, 0], scale: [1, 1.04, 0.98, 1] }}
+          transition={{ duration: orb.duration, repeat: Infinity, repeatType: "mirror", ease: "easeInOut" }}
+        />
+      ))}
 
       {/* 3. LOCATION CONFIRM MODAL (AnimatePresence for smooth entry/exit) */}
       <AnimatePresence>
@@ -463,12 +525,25 @@ export default function App() {
           }`} />
 
         <Container>
-          <div className="relative h-full py-16 grid grid-cols-1 md:grid-cols-2 gap-y-8 md:gap-y-12 lg:gap-x-24 items-center">
+        <motion.div
+          className="relative h-full py-16 grid grid-cols-1 md:grid-cols-2 gap-y-8 md:gap-y-12 lg:gap-x-24 items-center"
+          variants={statsVariants}
+          initial="hidden"
+          animate="show"
+        >
+          <motion.div variants={statItem}>
             <StatBox label="Current Timezone" value={data.timezone} isNight={isNightMode} />
+          </motion.div>
+          <motion.div variants={statItem}>
             <StatBox label="Day of the week" value={data.dayOfWeek} isNight={isNightMode} />
+          </motion.div>
+          <motion.div variants={statItem}>
             <StatBox label="Day of the year" value={data.dayOfYear} isNight={isNightMode} />
+          </motion.div>
+          <motion.div variants={statItem}>
             <StatBox label="Week number" value={data.weekNumber} isNight={isNightMode} />
-          </div>
+          </motion.div>
+        </motion.div>
         </Container>
       </motion.div>
     </main>
