@@ -15,7 +15,7 @@ import {
   MapPin,
   Cpu
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, useSpring, useTransform, AnimatePresence, Variants } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -154,7 +154,6 @@ export default function App() {
   const [showLocationConfirm, setShowLocationConfirm] = useState(false);
   const [isOverrideMode, setIsOverrideMode] = useState(false);
   const [overrideQuery, setOverrideQuery] = useState('');
-  const [isOverrideLoading, setIsOverrideLoading] = useState(false);
   const [overrideError, setOverrideError] = useState('');
   const [manualOverride, setManualOverride] = useState<UplinkData | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -341,60 +340,95 @@ export default function App() {
     }
   };
 
-  const handleOverrideSearch = async () => {
+  // Mutation-based override (tries geocode, then falls back to proxied nominatim if needed)
+  const searchLocation = async (query: string): Promise<UplinkData> => {
+    let hit: any | undefined;
+    let lastError: any = null;
+
+    // 1) Try the geocode.maps.co proxy first
+    try {
+      const geoRes = await axios.get('/api-geocode/search', {
+        params: { q: query, format: 'json', limit: 1 },
+        timeout: 8000
+      });
+      hit = geoRes.data?.[0];
+      if (!hit) throw new Error('No results from geocode provider.');
+    } catch (err) {
+      lastError = err;
+      const errAny = err as any;
+      console.info('Primary geocode failed, attempting nominatim fallback:', errAny?.response?.status || errAny?.message || errAny);
+    }
+
+    // 2) If primary failed or returned nothing, try the nominatim proxy (server will set User-Agent)
+    if (!hit) {
+      try {
+        const nomRes = await axios.get('/api-nominatim/search', {
+          params: { q: query, format: 'json', limit: 1 },
+          timeout: 8000,
+          headers: { 'Accept-Language': 'en' }
+        });
+        hit = nomRes.data?.[0];
+        if (!hit) throw new Error('No results from nominatim fallback.');
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!hit) {
+      // If both failed, propagate a helpful message
+      const message = lastError?.response?.statusText || lastError?.message || 'Location not found.';
+      throw new Error(message);
+    }
+
+    // 3) Find timezone from coordinates
+    const tz = await axios.get('https://api.open-meteo.com/v1/timezone', {
+      params: { latitude: hit.lat, longitude: hit.lon },
+      timeout: 8000
+    });
+    const timezone = tz.data?.timezone;
+    if (!timezone) throw new Error('Could not determine timezone for that place.');
+
+    // 4) Get current time data for that timezone
+    const timeRes = await axios.get(`https://worldtimeapi.org/api/timezone/${timezone}`, { timeout: 8000 });
+    const ipDate = new Date(timeRes.data.datetime);
+
+    return {
+      location: hit.display_name,
+      timezone,
+      timezoneAbbr: timeRes.data.abbreviation,
+      dayOfYear: timeRes.data.day_of_year,
+      dayOfWeek: timeRes.data.day_of_week,
+      weekNumber: timeRes.data.week_number,
+      ipTimeAtRequest: ipDate.getTime(),
+      clientTimeAtRequest: Date.now()
+    };
+  };
+
+  const overrideMutation = useMutation({
+    mutationFn: searchLocation,
+    onSuccess: (newData: UplinkData) => {
+      setManualOverride(newData);
+      setShowLocationConfirm(false);
+      setIsOverrideMode(false);
+      setHasInitialized(true);
+      triggerHaptic('medium');
+      safeSpeak(`System override successful. Location set to ${newData.location}.`);
+      setOverrideError('');
+    },
+    onError: (error) => {
+      console.error('Manual override failed:', error);
+      setOverrideError('Override failed. Please try again.');
+      safeSpeak('Override failed. Satellite link unstable.');
+    }
+  });
+
+  const handleOverrideSearch = () => {
     if (!overrideQuery.trim()) {
       setOverrideError('Enter a city or place name.');
       return;
     }
     setOverrideError('');
-    setIsOverrideLoading(true);
-    try {
-      // 1) Find coordinates via Nominatim
-      const geo = await axios.get('https://nominatim.openstreetmap.org/search', {
-        params: { format: 'json', q: overrideQuery, limit: 1 },
-        headers: { 'Accept-Language': 'en', 'User-Agent': 'Clock-OS/1.0' }
-      });
-      const hit = geo.data?.[0];
-      if (!hit) {
-        setOverrideError('Location not found. Try another query.');
-        return;
-      }
-
-      // 2) Find timezone from coordinates
-      const tz = await axios.get('https://api.open-meteo.com/v1/timezone', {
-        params: { latitude: hit.lat, longitude: hit.lon }
-      });
-      const timezone = tz.data?.timezone;
-      if (!timezone) {
-        setOverrideError('Could not determine timezone for that place.');
-        return;
-      }
-
-      // 3) Get current time data for that timezone
-      const timeRes = await axios.get(`https://worldtimeapi.org/api/timezone/${timezone}`);
-      const ipDate = new Date(timeRes.data.datetime);
-
-      setManualOverride({
-        location: hit.display_name,
-        timezone,
-        timezoneAbbr: timeRes.data.abbreviation,
-        dayOfYear: timeRes.data.day_of_year,
-        dayOfWeek: timeRes.data.day_of_week,
-        weekNumber: timeRes.data.week_number,
-        ipTimeAtRequest: ipDate.getTime(),
-        clientTimeAtRequest: Date.now()
-      });
-
-      setShowLocationConfirm(false);
-      setIsOverrideMode(false);
-      setHasInitialized(true);
-      triggerHaptic('medium');
-    } catch (err) {
-      console.error(err);
-      setOverrideError('Override failed. Please try again.');
-    } finally {
-      setIsOverrideLoading(false);
-    }
+    overrideMutation.mutate(overrideQuery);
   };
 
   if (isLoading) {
@@ -526,10 +560,10 @@ export default function App() {
                   />
                   <button
                     onClick={handleOverrideSearch}
-                    disabled={isOverrideLoading}
+                    disabled={overrideMutation.isPending}
                     className="w-full py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50"
                   >
-                    {isOverrideLoading ? 'Searching...' : 'Set Override'}
+                    {overrideMutation.isPending ? 'Searching...' : 'Set Override'}
                   </button>
                   {overrideError && <p className="text-red-400 text-sm">{overrideError}</p>}
                 </div>

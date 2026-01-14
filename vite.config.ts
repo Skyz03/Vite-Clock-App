@@ -4,6 +4,26 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api-geocode': {
+        target: 'https://geocode.maps.co',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-geocode/, ''),
+        headers: {
+          'User-Agent': 'ClockOS/1.0'
+        }
+      },
+      '/api-nominatim': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-nominatim/, ''),
+        headers: {
+          'User-Agent': 'ClockOS/1.0'
+        }
+      }
+    }
+  },
   // @ts-ignore
   test: {
     globals: true,
