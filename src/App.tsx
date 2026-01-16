@@ -1,6 +1,5 @@
-//The Localization feature working smoothly read to for per the possibility.
 //Responsive background screen for various design time of the day
-//Make it something like a portfolio worthy
+
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
@@ -12,7 +11,13 @@ import {
   Sun,
   Moon,
   MapPin,
-  Cpu
+  Cpu,
+  Settings,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  Keyboard
 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, useSpring, useTransform, AnimatePresence, Variants } from 'framer-motion';
@@ -179,6 +184,9 @@ export default function App() {
   const [overrideError, setOverrideError] = useState('');
   const [manualOverride, setManualOverride] = useState<UplinkData | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
 
   // 4. Merged Data Object
   // We use useMemo to combine Server Data with our Local Clock
@@ -308,6 +316,60 @@ export default function App() {
   useEffect(() => {
     refreshQuote();
   }, []);
+
+  // Toast notification system
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 3000);
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent shortcuts when typing in inputs
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Toggle stats panel
+      if (e.key === 'm' || e.key === 'M') {
+        setIsExpanded(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Toggle settings
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Toggle keyboard shortcuts help
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        setShowKeyboardShortcuts(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Refresh quote
+      if (e.key === 'r' || e.key === 'R') {
+        refreshQuote();
+      }
+      // Toggle language
+      if (e.key === 'l' || e.key === 'L') {
+        toggleLanguage();
+      }
+      // Close modals with Escape
+      if (e.key === 'Escape') {
+        if (showLocationConfirm) setShowLocationConfirm(false);
+        if (showSettings) setShowSettings(false);
+        if (showKeyboardShortcuts) setShowKeyboardShortcuts(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showLocationConfirm, showSettings, showKeyboardShortcuts, triggerHaptic, refreshQuote, toggleLanguage]);
 
   const isNightMode = useMemo(() => {
     if (!data) return false;
@@ -489,11 +551,13 @@ export default function App() {
       triggerHaptic('medium');
       safeSpeak(`${t('voice.overrideSuccess')} ${newData.location}.`);
       setOverrideError('');
+      showToast(t('voice.overrideSuccess'), 'success');
     },
     onError: (error) => {
       console.error('Manual override failed:', error);
       setOverrideError(t('modal.overrideFailed'));
       safeSpeak(t('voice.overrideFailed'));
+      showToast(t('modal.overrideFailed'), 'error');
     }
   });
 
@@ -508,10 +572,35 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono animate-pulse gap-4">
-        <Cpu className="animate-spin text-blue-500" size={32} />
-        <span className="tracking-[0.5em] text-xs">{t('system.booting')}</span>
-      </div>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono gap-6"
+      >
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+        >
+          <Cpu className="text-blue-500" size={48} />
+        </motion.div>
+        <div className="flex flex-col items-center gap-3">
+          <motion.span 
+            className="tracking-[0.5em] text-xs"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            {t('system.booting')}
+          </motion.span>
+          <div className="w-64 h-1 bg-white/10 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-blue-500 rounded-full"
+              initial={{ width: '0%' }}
+              animate={{ width: '100%' }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+        </div>
+      </motion.div>
     );
   }
 
@@ -550,15 +639,37 @@ export default function App() {
   return (
     <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1500px]">
 
-      {/* Language toggle with motion feedback */}
-      <motion.button
-        onClick={toggleLanguage}
-        className="absolute top-6 right-6 z-30 px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
-        whileHover={{ scale: 1.05, opacity: 1 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        {getNextLanguageCode()}
-      </motion.button>
+      {/* Top Right Controls */}
+      <div className="absolute top-6 right-6 z-30 flex gap-3">
+        <motion.button
+          onClick={() => setShowKeyboardShortcuts(true)}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Keyboard shortcuts"
+        >
+          <Keyboard size={16} className="inline mr-2" />
+          ?
+        </motion.button>
+        <motion.button
+          onClick={() => setShowSettings(true)}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Settings"
+        >
+          <Settings size={16} />
+        </motion.button>
+        <motion.button
+          onClick={toggleLanguage}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Change language"
+        >
+          {getNextLanguageCode()}
+        </motion.button>
+      </div>
 
       {/* 1. PHYSICAL BACKGROUND (Motion-Optimized) */}
       <motion.div
@@ -765,6 +876,168 @@ export default function App() {
           </motion.div>
         </Container>
       </motion.div>
+
+      {/* Toast Notifications */}
+      <div className="fixed top-24 right-6 z-50 space-y-2">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 100, scale: 0.8 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.8 }}
+              className="bg-black/90 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 flex items-center gap-3 min-w-[280px] shadow-2xl"
+            >
+              {toast.type === 'success' && <CheckCircle2 className="text-green-400" size={20} />}
+              {toast.type === 'error' && <AlertCircle className="text-red-400" size={20} />}
+              {toast.type === 'info' && <Info className="text-blue-400" size={20} />}
+              <span className="text-white text-sm flex-1">{toast.message}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Settings Panel */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-black/90 border border-white/10 rounded-3xl p-8 max-w-md w-full max-h-[80vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-white uppercase tracking-wider">Settings</h2>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="text-white/60 hover:text-white transition-colors"
+                  aria-label="Close settings"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">Language</label>
+                  <div className="flex gap-2">
+                    {['en', 'fr', 'ar'].map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => {
+                          i18n.changeLanguage(lang);
+                          showToast(`Language changed to ${lang.toUpperCase()}`, 'success');
+                        }}
+                        className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                          i18n.language === lang
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white/5 text-white/60 hover:bg-white/10'
+                        }`}
+                      >
+                        {lang.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">Haptic Feedback</label>
+                  <p className="text-white/60 text-xs mb-2">Vibration feedback for interactions</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => triggerHaptic('light')}
+                      className="px-4 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      Test Light
+                    </button>
+                    <button
+                      onClick={() => triggerHaptic('medium')}
+                      className="px-4 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      Test Medium
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">System Info</label>
+                  <div className="bg-white/5 rounded-lg p-4 space-y-2 text-xs text-white/60">
+                    <div className="flex justify-between">
+                      <span>Timezone:</span>
+                      <span className="text-white">{data.timezone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Location:</span>
+                      <span className="text-white truncate ml-4">{data.location}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Mode:</span>
+                      <span className="text-white">{isNightMode ? 'Night' : 'Day'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Keyboard Shortcuts Modal */}
+      <AnimatePresence>
+        {showKeyboardShortcuts && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6"
+            onClick={() => setShowKeyboardShortcuts(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-black/90 border border-white/10 rounded-3xl p-8 max-w-lg w-full"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-white uppercase tracking-wider flex items-center gap-3">
+                  <Keyboard size={24} />
+                  Keyboard Shortcuts
+                </h2>
+                <button
+                  onClick={() => setShowKeyboardShortcuts(false)}
+                  className="text-white/60 hover:text-white transition-colors"
+                  aria-label="Close shortcuts"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-4">
+                {[
+                  { key: 'M', desc: 'Toggle stats panel' },
+                  { key: 'R', desc: 'Refresh quote' },
+                  { key: 'L', desc: 'Change language' },
+                  { key: '?', desc: 'Show keyboard shortcuts' },
+                  { key: '⌘,', desc: 'Open settings' },
+                  { key: 'Esc', desc: 'Close modals' },
+                ].map((shortcut) => (
+                  <div key={shortcut.key} className="flex items-center justify-between py-3 border-b border-white/10">
+                    <span className="text-white/80">{shortcut.desc}</span>
+                    <kbd className="px-3 py-1 bg-white/10 text-white rounded-lg text-sm font-mono border border-white/20">
+                      {shortcut.key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
