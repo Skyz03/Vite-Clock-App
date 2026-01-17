@@ -48,7 +48,7 @@ i18n
                     },
                     system: {
                         booting: 'BOOTING OS...',
-                        systemVersion: 'SYSTEM v2.0',
+                        systemVersion: 'SYSTEM v3.0',
                         clockOS: 'CLOCK OS',
                         uplinkActive: 'Uplink active...',
                         system: 'System'
