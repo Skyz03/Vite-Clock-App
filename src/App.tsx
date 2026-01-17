@@ -23,9 +23,15 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, useSpring, useTransform, AnimatePresence, Variants } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-// Assets
-import bgImageDaytime from './assets/desktop/bg-image-daytime.jpg';
-import bgImageNighttime from './assets/desktop/bg-image-nighttime.jpg';
+// Assets - Desktop
+import bgImageDaytimeDesktop from './assets/desktop/bg-image-daytime.jpg';
+import bgImageNighttimeDesktop from './assets/desktop/bg-image-nighttime.jpg';
+// Assets - Tablet
+import bgImageDaytimeTablet from './assets/tablet/bg-image-daytime.jpg';
+import bgImageNighttimeTablet from './assets/tablet/bg-image-nighttime.jpg';
+// Assets - Mobile
+import bgImageDaytimeMobile from './assets/mobile/bg-image-daytime.jpg';
+import bgImageNighttimeMobile from './assets/mobile/bg-image-nighttime.jpg';
 // @ts-ignore
 import localQuotes from './data/quote.js';
 
@@ -376,7 +382,48 @@ export default function App() {
     return data.currentHour >= 18 || data.currentHour < 6;
   }, [data]);
 
-  const currentBg = isNightMode ? bgImageNighttime : bgImageDaytime;
+  // Device type detection for responsive backgrounds
+  const [deviceType, setDeviceType] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+
+  useEffect(() => {
+    const updateDeviceType = () => {
+      const width = window.innerWidth;
+      if (width < 768) {
+        setDeviceType('mobile');
+      } else if (width < 1024) {
+        setDeviceType('tablet');
+      } else {
+        setDeviceType('desktop');
+      }
+    };
+
+    updateDeviceType();
+    window.addEventListener('resize', updateDeviceType);
+    return () => window.removeEventListener('resize', updateDeviceType);
+  }, []);
+
+  // Select appropriate background based on device type and time of day
+  const currentBg = useMemo(() => {
+    if (isNightMode) {
+      switch (deviceType) {
+        case 'mobile':
+          return bgImageNighttimeMobile;
+        case 'tablet':
+          return bgImageNighttimeTablet;
+        default:
+          return bgImageNighttimeDesktop;
+      }
+    } else {
+      switch (deviceType) {
+        case 'mobile':
+          return bgImageDaytimeMobile;
+        case 'tablet':
+          return bgImageDaytimeTablet;
+        default:
+          return bgImageDaytimeDesktop;
+      }
+    }
+  }, [isNightMode, deviceType]);
 
   // Gentle floating accents for extra motion depth
   const floatingOrbs = [
