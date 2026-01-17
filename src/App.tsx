@@ -1,7 +1,5 @@
-//The Localization feature working smoothly read to for per the possibility.
 //Responsive background screen for various design time of the day
-//Make it something like a portfolio worthy
-//The override feature needs to be more robust and user friendly.
+
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
@@ -13,7 +11,13 @@ import {
   Sun,
   Moon,
   MapPin,
-  Cpu
+  Cpu,
+  Settings,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  Keyboard
 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { motion, useSpring, useTransform, AnimatePresence, Variants } from 'framer-motion';
@@ -134,10 +138,33 @@ export default function App() {
   });
 
   const { t, i18n } = useTranslation();
+  
+  // Cycle through all supported languages
   const toggleLanguage = () => {
-    const newLang = i18n.language === 'en' ? 'fr' : 'en';
+    const languages = ['en', 'fr', 'ar'];
+    const currentIndex = languages.indexOf(i18n.language);
+    const nextIndex = (currentIndex + 1) % languages.length;
+    const newLang = languages[nextIndex];
     i18n.changeLanguage(newLang);
     triggerHaptic('light');
+  };
+
+  // Get locale for date/time formatting based on current language
+  const getLocale = () => {
+    const langMap: Record<string, string> = {
+      'en': 'en-GB',
+      'fr': 'fr-FR',
+      'ar': 'ar-SA'
+    };
+    return langMap[i18n.language] || 'en-GB';
+  };
+
+  // Get next language code for display
+  const getNextLanguageCode = () => {
+    const languages = ['en', 'fr', 'ar'];
+    const currentIndex = languages.indexOf(i18n.language);
+    const nextIndex = (currentIndex + 1) % languages.length;
+    return languages[nextIndex].toUpperCase();
   };
 
   // 2. Local Time State (Updates every second)
@@ -157,6 +184,9 @@ export default function App() {
   const [overrideError, setOverrideError] = useState('');
   const [manualOverride, setManualOverride] = useState<UplinkData | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' }>>([]);
 
   // 4. Merged Data Object
   // We use useMemo to combine Server Data with our Local Clock
@@ -180,12 +210,15 @@ export default function App() {
       effectiveNow = new Date(currentTime.getTime() + offsetMs);
     }
 
+    // Use locale-aware time formatting based on current language
+    const locale = getLocale();
+    
     return {
       ...baseData,
       dayOfYear: getDayOfYear(effectiveNow),
       dayOfWeek: effectiveNow.getDay(),
       weekNumber: getWeekNumber(effectiveNow),
-      time: effectiveNow.toLocaleTimeString('en-GB', {
+      time: effectiveNow.toLocaleTimeString(locale, {
         hour: '2-digit',
         minute: '2-digit',
         timeZone: baseData.timezone
@@ -193,7 +226,7 @@ export default function App() {
       currentHour: effectiveNow.getHours(),
       rawTime: effectiveNow
     };
-  }, [serverData, currentTime, manualOverride]);
+  }, [serverData, currentTime, manualOverride, i18n.language]);
 
   const { speak } = useVoiceAssistant();
 
@@ -284,6 +317,60 @@ export default function App() {
     refreshQuote();
   }, []);
 
+  // Toast notification system
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 3000);
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent shortcuts when typing in inputs
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Toggle stats panel
+      if (e.key === 'm' || e.key === 'M') {
+        setIsExpanded(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Toggle settings
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Toggle keyboard shortcuts help
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        setShowKeyboardShortcuts(prev => !prev);
+        triggerHaptic('light');
+      }
+      // Refresh quote
+      if (e.key === 'r' || e.key === 'R') {
+        refreshQuote();
+      }
+      // Toggle language
+      if (e.key === 'l' || e.key === 'L') {
+        toggleLanguage();
+      }
+      // Close modals with Escape
+      if (e.key === 'Escape') {
+        if (showLocationConfirm) setShowLocationConfirm(false);
+        if (showSettings) setShowSettings(false);
+        if (showKeyboardShortcuts) setShowKeyboardShortcuts(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showLocationConfirm, showSettings, showKeyboardShortcuts, triggerHaptic, refreshQuote, toggleLanguage]);
+
   const isNightMode = useMemo(() => {
     if (!data) return false;
     return data.currentHour >= 18 || data.currentHour < 6;
@@ -317,8 +404,8 @@ export default function App() {
     if (!data) return;
 
     const greeting = data.location === 'Local System'
-      ? 'Hello Chief. External services unavailable. Initializing local time.'
-      : `Hello Chief. You are in ${data.location}. Is this correct?`;
+      ? t('voice.externalUnavailable')
+      : `${t('voice.locationConfirm')} ${data.location}. Is this correct?`;
 
     safeSpeak(greeting, () => {
       if (data.location !== 'Local System') setShowLocationConfirm(true);
@@ -329,37 +416,61 @@ export default function App() {
     triggerHaptic(ok ? 'medium' : 'light');
     setShowLocationConfirm(false);
     if (ok && data) {
-      safeSpeak(`System synchronized. The time is ${data.rawTime.toLocaleTimeString('en-US', {
+      const locale = getLocale();
+      safeSpeak(`${t('voice.systemSync')} ${data.rawTime.toLocaleTimeString(locale, {
         hour: 'numeric',
         minute: 'numeric'
       })}.`);
     } else {
-      safeSpeak('Proceeding with manual override.');
+      safeSpeak(t('voice.proceedingOverride'));
       setIsOverrideMode(true);
       setShowLocationConfirm(true);
     }
   };
 
-  // Mutation-based override (tries geocode, then falls back to proxied nominatim if needed)
+  // Mutation-based override (uses open-meteo geocoding API which includes timezone)
   const searchLocation = async (query: string): Promise<UplinkData> => {
     let hit: any | undefined;
     let lastError: any = null;
 
-    // 1) Try the geocode.maps.co proxy first
+    // 1) Try open-meteo geocoding API first (includes timezone in response)
     try {
-      const geoRes = await axios.get('/api-geocode/search', {
-        params: { q: query, format: 'json', limit: 1 },
+      const geoRes = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
+        params: { 
+          name: query, 
+          count: 10, 
+          language: 'en', 
+          format: 'json' 
+        },
         timeout: 8000
       });
-      hit = geoRes.data?.[0];
-      if (!hit) throw new Error('No results from geocode provider.');
+      const results = geoRes.data?.results;
+      if (!results || results.length === 0) {
+        throw new Error('No results from geocoding provider.');
+      }
+      // Use the first result (most relevant)
+      hit = results[0];
     } catch (err) {
       lastError = err;
       const errAny = err as any;
-      console.info('Primary geocode failed, attempting nominatim fallback:', errAny?.response?.status || errAny?.message || errAny);
+      console.info('Open-meteo geocoding failed, attempting fallback:', errAny?.response?.status || errAny?.message || errAny);
     }
 
-    // 2) If primary failed or returned nothing, try the nominatim proxy (server will set User-Agent)
+    // 2) Fallback to proxy endpoints if open-meteo fails
+    if (!hit) {
+      try {
+        const geoRes = await axios.get('/api-geocode/search', {
+          params: { q: query, format: 'json', limit: 1 },
+          timeout: 8000
+        });
+        hit = geoRes.data?.[0];
+        if (!hit) throw new Error('No results from geocode provider.');
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    // 3) If still no hit, try nominatim proxy
     if (!hit) {
       try {
         const nomRes = await axios.get('/api-nominatim/search', {
@@ -375,25 +486,51 @@ export default function App() {
     }
 
     if (!hit) {
-      // If both failed, propagate a helpful message
+      // If all failed, propagate a helpful message
       const message = lastError?.response?.statusText || lastError?.message || 'Location not found.';
       throw new Error(message);
     }
 
-    // 3) Find timezone from coordinates
-    const tz = await axios.get('https://api.open-meteo.com/v1/timezone', {
-      params: { latitude: hit.lat, longitude: hit.lon },
-      timeout: 8000
-    });
-    const timezone = tz.data?.timezone;
-    if (!timezone) throw new Error('Could not determine timezone for that place.');
+    // Extract timezone - open-meteo includes it, others need separate lookup
+    let timezone: string | undefined = hit.timezone;
+    
+    // If timezone not in response (fallback APIs), fetch it from coordinates
+    if (!timezone && hit.latitude && hit.longitude) {
+      try {
+        const tzRes = await axios.get('https://api.open-meteo.com/v1/timezone', {
+          params: { latitude: hit.latitude || hit.lat, longitude: hit.longitude || hit.lon },
+          timeout: 8000
+        });
+        timezone = tzRes.data?.timezone;
+      } catch (err) {
+        console.warn('Timezone lookup failed:', err);
+      }
+    }
 
-    // 4) Get current time data for that timezone
+    if (!timezone) {
+      throw new Error('Could not determine timezone for that place.');
+    }
+
+    // Get current time data for that timezone
     const timeRes = await axios.get(`https://worldtimeapi.org/api/timezone/${timezone}`, { timeout: 8000 });
     const ipDate = new Date(timeRes.data.datetime);
 
+    // Construct location display name
+    let locationName: string;
+    if (hit.display_name) {
+      // Nominatim format
+      locationName = hit.display_name;
+    } else if (hit.name && hit.country) {
+      // Open-meteo format: "City, Country"
+      locationName = `${hit.name}, ${hit.country}`;
+    } else if (hit.name) {
+      locationName = hit.name;
+    } else {
+      locationName = query; // Fallback to search query
+    }
+
     return {
-      location: hit.display_name,
+      location: locationName,
       timezone,
       timezoneAbbr: timeRes.data.abbreviation,
       dayOfYear: timeRes.data.day_of_year,
@@ -412,19 +549,21 @@ export default function App() {
       setIsOverrideMode(false);
       setHasInitialized(true);
       triggerHaptic('medium');
-      safeSpeak(`System override successful. Location set to ${newData.location}.`);
+      safeSpeak(`${t('voice.overrideSuccess')} ${newData.location}.`);
       setOverrideError('');
+      showToast(t('voice.overrideSuccess'), 'success');
     },
     onError: (error) => {
       console.error('Manual override failed:', error);
-      setOverrideError('Override failed. Please try again.');
-      safeSpeak('Override failed. Satellite link unstable.');
+      setOverrideError(t('modal.overrideFailed'));
+      safeSpeak(t('voice.overrideFailed'));
+      showToast(t('modal.overrideFailed'), 'error');
     }
   });
 
   const handleOverrideSearch = () => {
     if (!overrideQuery.trim()) {
-      setOverrideError('Enter a city or place name.');
+      setOverrideError(t('modal.enterCity'));
       return;
     }
     setOverrideError('');
@@ -433,10 +572,35 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono animate-pulse gap-4">
-        <Cpu className="animate-spin text-blue-500" size={32} />
-        <span className="tracking-[0.5em] text-xs">BOOTING OS...</span>
-      </div>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="h-screen w-full bg-black text-white flex flex-col items-center justify-center font-mono gap-6"
+      >
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+        >
+          <Cpu className="text-blue-500" size={48} />
+        </motion.div>
+        <div className="flex flex-col items-center gap-3">
+          <motion.span 
+            className="tracking-[0.5em] text-xs"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            {t('system.booting')}
+          </motion.span>
+          <div className="w-64 h-1 bg-white/10 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-blue-500 rounded-full"
+              initial={{ width: '0%' }}
+              animate={{ width: '100%' }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+        </div>
+      </motion.div>
     );
   }
 
@@ -453,16 +617,16 @@ export default function App() {
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
         <div className="relative z-10 text-center space-y-10">
           <div className="space-y-2">
-            <p className="text-blue-400 font-mono text-xs tracking-[0.4em]">SYSTEM v2.0</p>
+            <p className="text-blue-400 font-mono text-xs tracking-[0.4em]">{t('system.systemVersion')}</p>
             <h1 className="text-7xl md:text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
-              CLOCK OS
+              {t('system.clockOS')}
             </h1>
           </div>
           <button
             onClick={requestSensors}
             className="group relative px-12 py-5 bg-white text-black font-bold tracking-[0.3em] rounded-full hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.3)] uppercase text-xs"
           >
-            <span className="relative z-10">Initialize Neural Link</span>
+            <span className="relative z-10">{t('button.initialize')}</span>
             <div className="absolute inset-0 rounded-full bg-blue-500 scale-0 group-hover:scale-110 opacity-0 group-hover:opacity-20 transition-all duration-500" />
           </button>
         </div>
@@ -475,15 +639,37 @@ export default function App() {
   return (
     <main className="relative h-screen w-full overflow-hidden bg-black font-sans perspective-[1500px]">
 
-      {/* Language toggle with motion feedback */}
-      <motion.button
-        onClick={toggleLanguage}
-        className="absolute top-6 right-6 z-30 px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
-        whileHover={{ scale: 1.05, opacity: 1 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        {i18n.language === 'en' ? 'FR' : 'EN'}
-      </motion.button>
+      {/* Top Right Controls */}
+      <div className="absolute top-6 right-6 z-30 flex gap-3">
+        <motion.button
+          onClick={() => setShowKeyboardShortcuts(true)}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Keyboard shortcuts"
+        >
+          <Keyboard size={16} className="inline mr-2" />
+          ?
+        </motion.button>
+        <motion.button
+          onClick={() => setShowSettings(true)}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Settings"
+        >
+          <Settings size={16} />
+        </motion.button>
+        <motion.button
+          onClick={toggleLanguage}
+          className="px-4 py-2 rounded-full border border-white/20 text-white/80 text-xs tracking-[0.2em] bg-white/5 backdrop-blur-md hover:text-white"
+          whileHover={{ scale: 1.05, opacity: 1 }}
+          whileTap={{ scale: 0.95 }}
+          aria-label="Change language"
+        >
+          {getNextLanguageCode()}
+        </motion.button>
+      </div>
 
       {/* 1. PHYSICAL BACKGROUND (Motion-Optimized) */}
       <motion.div
@@ -529,7 +715,7 @@ export default function App() {
                 <div className="absolute inset-0 bg-blue-400/20 blur-2xl rounded-full" />
               </div>
               <div className="space-y-2">
-                <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">Satellite Uplink Success</p>
+                <p className="text-white/40 uppercase tracking-[0.3em] text-[10px]">{t('modal.satelliteUplink')}</p>
                 <h3 className="text-3xl font-black text-white uppercase">{data.location}</h3>
               </div>
               <div className="flex gap-4">
@@ -537,7 +723,7 @@ export default function App() {
                   onClick={() => handleLocationConfirm(true)}
                   className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-blue-500 hover:text-white transition-all transform active:scale-95"
                 >
-                  Confirm
+                  {t('button.confirm')}
                 </button>
                 <button
                   onClick={() => {
@@ -546,16 +732,16 @@ export default function App() {
                   }}
                   className="flex-1 py-4 border border-white/20 text-white font-bold rounded-xl hover:bg-white/5 transition-colors"
                 >
-                  Override
+                  {t('button.override')}
                 </button>
               </div>
               {isOverrideMode && (
                 <div className="space-y-3 text-left">
-                  <label className="text-white/60 text-xs uppercase tracking-[0.25em]">Search city or place</label>
+                  <label className="text-white/60 text-xs uppercase tracking-[0.25em]">{t('modal.searchCity')}</label>
                   <input
                     value={overrideQuery}
                     onChange={(e) => setOverrideQuery(e.target.value)}
-                    placeholder="e.g. Tokyo, New York, Paris"
+                    placeholder={t('modal.searchPlaceholder')}
                     className="w-full bg-white/5 text-white rounded-xl px-4 py-3 border border-white/10 placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
@@ -563,7 +749,7 @@ export default function App() {
                     disabled={overrideMutation.isPending}
                     className="w-full py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50"
                   >
-                    {overrideMutation.isPending ? 'Searching...' : 'Set Override'}
+                    {overrideMutation.isPending ? t('button.searching') : t('button.setOverride')}
                   </button>
                   {overrideError && <p className="text-red-400 text-sm">{overrideError}</p>}
                 </div>
@@ -590,14 +776,14 @@ export default function App() {
               <div className="flex flex-col gap-3 max-w-2xl bg-black/10 backdrop-blur-md p-6 rounded-2xl border border-white/5">
                 <div className="flex items-start gap-4">
                   <p className="text-white text-base md:text-lg leading-relaxed font-normal italic">
-                    {quote.content ? `“${quote.content}”` : "Uplink active..."}
+                    {quote.content ? `“${quote.content}”` : t('system.uplinkActive')}
                   </p>
                   <button onClick={refreshQuote} className="mt-1 text-white/40 hover:text-white hover:rotate-180 transition-all duration-500">
                     <RefreshCw size={18} />
                   </button>
                 </div>
                 <span className="text-white font-bold text-sm tracking-widest uppercase opacity-90 border-l-2 border-blue-500 pl-3">
-                  {quote.author || "System"}
+                  {quote.author || t('system.system')}
                 </span>
               </div>
             </motion.header>
@@ -608,7 +794,7 @@ export default function App() {
                 <div className="flex items-center gap-4 uppercase tracking-[0.3em] text-sm md:text-base font-medium text-white drop-shadow-md">
                   {isNightMode ? <Moon className="text-blue-300" size={24} /> : <Sun className="text-yellow-400" size={24} />}
                   {t(`greeting.${data.currentHour < 12 ? 'morning' : data.currentHour < 18 ? 'afternoon' : 'evening'}`)}
-                  <span className="hidden md:inline">, Chief</span>
+                  <span className="hidden md:inline">, {t('greeting.chief')}</span>
                 </div>
 
                 <div className="flex items-baseline gap-2 md:gap-4">
@@ -631,7 +817,7 @@ export default function App() {
                     }}
                     className="text-xs font-semibold tracking-[0.2em] text-white/60 hover:text-white underline-offset-4 underline"
                   >
-                    Change
+                    {t('button.change')}
                   </button>
                 </div>
               </motion.div>
@@ -644,7 +830,7 @@ export default function App() {
                 className="group flex items-center gap-4 bg-white hover:bg-blue-500 p-2 pl-6 md:pl-8 rounded-full transition-all self-start lg:mb-6 shadow-xl active:scale-90"
               >
                 <span className="font-bold tracking-[0.3em] text-xs text-black/60 group-hover:text-white transition-colors">
-                  {isExpanded ? 'LESS' : 'MORE'}
+                  {isExpanded ? t('button.less') : t('button.more')}
                 </span>
                 <div className="w-8 h-8 md:w-10 md:h-10 bg-black group-hover:bg-white group-hover:text-black rounded-full flex items-center justify-center text-white transition-transform">
                   {isExpanded ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
@@ -676,20 +862,182 @@ export default function App() {
             animate="show"
           >
             <motion.div variants={statItem}>
-              <StatBox label="Current Timezone" value={data.timezone} isNight={isNightMode} />
+              <StatBox label={t('stats.timezone')} value={data.timezone} isNight={isNightMode} />
             </motion.div>
             <motion.div variants={statItem}>
-              <StatBox label="Day of the week" value={data.dayOfWeek} isNight={isNightMode} />
+              <StatBox label={t('stats.dayOfWeek')} value={data.dayOfWeek} isNight={isNightMode} />
             </motion.div>
             <motion.div variants={statItem}>
-              <StatBox label="Day of the year" value={data.dayOfYear} isNight={isNightMode} />
+              <StatBox label={t('stats.dayOfYear')} value={data.dayOfYear} isNight={isNightMode} />
             </motion.div>
             <motion.div variants={statItem}>
-              <StatBox label="Week number" value={data.weekNumber} isNight={isNightMode} />
+              <StatBox label={t('stats.weekNumber')} value={data.weekNumber} isNight={isNightMode} />
             </motion.div>
           </motion.div>
         </Container>
       </motion.div>
+
+      {/* Toast Notifications */}
+      <div className="fixed top-24 right-6 z-50 space-y-2">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 100, scale: 0.8 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.8 }}
+              className="bg-black/90 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 flex items-center gap-3 min-w-[280px] shadow-2xl"
+            >
+              {toast.type === 'success' && <CheckCircle2 className="text-green-400" size={20} />}
+              {toast.type === 'error' && <AlertCircle className="text-red-400" size={20} />}
+              {toast.type === 'info' && <Info className="text-blue-400" size={20} />}
+              <span className="text-white text-sm flex-1">{toast.message}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Settings Panel */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-black/90 border border-white/10 rounded-3xl p-8 max-w-md w-full max-h-[80vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-white uppercase tracking-wider">Settings</h2>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="text-white/60 hover:text-white transition-colors"
+                  aria-label="Close settings"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">Language</label>
+                  <div className="flex gap-2">
+                    {['en', 'fr', 'ar'].map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => {
+                          i18n.changeLanguage(lang);
+                          showToast(`Language changed to ${lang.toUpperCase()}`, 'success');
+                        }}
+                        className={`px-4 py-2 rounded-lg font-bold transition-all ${
+                          i18n.language === lang
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white/5 text-white/60 hover:bg-white/10'
+                        }`}
+                      >
+                        {lang.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">Haptic Feedback</label>
+                  <p className="text-white/60 text-xs mb-2">Vibration feedback for interactions</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => triggerHaptic('light')}
+                      className="px-4 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      Test Light
+                    </button>
+                    <button
+                      onClick={() => triggerHaptic('medium')}
+                      className="px-4 py-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      Test Medium
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-white/80 text-sm uppercase tracking-wider mb-2 block">System Info</label>
+                  <div className="bg-white/5 rounded-lg p-4 space-y-2 text-xs text-white/60">
+                    <div className="flex justify-between">
+                      <span>Timezone:</span>
+                      <span className="text-white">{data.timezone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Location:</span>
+                      <span className="text-white truncate ml-4">{data.location}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Mode:</span>
+                      <span className="text-white">{isNightMode ? 'Night' : 'Day'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Keyboard Shortcuts Modal */}
+      <AnimatePresence>
+        {showKeyboardShortcuts && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl p-6"
+            onClick={() => setShowKeyboardShortcuts(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-black/90 border border-white/10 rounded-3xl p-8 max-w-lg w-full"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-white uppercase tracking-wider flex items-center gap-3">
+                  <Keyboard size={24} />
+                  Keyboard Shortcuts
+                </h2>
+                <button
+                  onClick={() => setShowKeyboardShortcuts(false)}
+                  className="text-white/60 hover:text-white transition-colors"
+                  aria-label="Close shortcuts"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-4">
+                {[
+                  { key: 'M', desc: 'Toggle stats panel' },
+                  { key: 'R', desc: 'Refresh quote' },
+                  { key: 'L', desc: 'Change language' },
+                  { key: '?', desc: 'Show keyboard shortcuts' },
+                  { key: '⌘,', desc: 'Open settings' },
+                  { key: 'Esc', desc: 'Close modals' },
+                ].map((shortcut) => (
+                  <div key={shortcut.key} className="flex items-center justify-between py-3 border-b border-white/10">
+                    <span className="text-white/80">{shortcut.desc}</span>
+                    <kbd className="px-3 py-1 bg-white/10 text-white rounded-lg text-sm font-mono border border-white/20">
+                      {shortcut.key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
