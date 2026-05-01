@@ -1,4 +1,4 @@
-# 🚀 Clock OS v3.0 - Portfolio Edition
+# 🚀 Clock OS v3.0 - Portfolio Editions
 
 **Clock OS** is a high-performance, motion-aware web application that transforms browser environments into a sophisticated, neural-linked time interface. Built with cutting-edge web technologies, it delivers a seamless "native-app" experience with hardware-accelerated animations, intelligent state management, and full internationalization support.
 
